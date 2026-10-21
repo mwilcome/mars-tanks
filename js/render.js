@@ -438,12 +438,135 @@ function drawDust(ctx, map, time) {
   ctx.globalAlpha = 1;
 }
 
+// On a short landscape phone the board is much wider than 16:9. Framing the
+// whole 1600×900 world with object-fit: contain letterboxes it into a strip.
+// frameView instead fills the width and keeps the ground in the gap between
+// the overlaid HUD and controls. Desktop (no overlay) still shows the full world.
+export function frameView({ cssW, cssH, dpr = 1, insetTop = 0, insetBottom = 0, minY, maxY, shellY = null }) {
+  const w = cssW * dpr;
+  const h = cssH * dpr;
+  const classic = () => {
+    const scale = Math.min(w / WORLD_W, h / WORLD_H);
+    return {
+      scale,
+      originX: (w - WORLD_W * scale) / 2,
+      originY: (h - WORLD_H * scale) / 2,
+    };
+  };
+  if (cssW < 2 || cssH < 2 || (insetTop < 8 && insetBottom < 8)) return classic();
+
+  const topI = insetTop * dpr;
+  const botI = insetBottom * dpr;
+  const clear = h - topI - botI;
+  if (clear < 90 * dpr) return classic();
+
+  const fill = w / WORLD_W;
+  let padTop = 118;
+  let padBot = 36;
+  const fitWorld = clear / fill;
+  const spanOf = () => maxY + padBot - (minY - padTop);
+  if (spanOf() > fitWorld) {
+    padTop = Math.max(72, padTop - (spanOf() - fitWorld));
+  }
+  if (spanOf() > fitWorld) {
+    padBot = Math.max(14, padBot - (spanOf() - fitWorld));
+  }
+
+  let scale = fill;
+  let viewTop = minY - padTop;
+  let viewH = spanOf();
+  if (viewH <= fitWorld) {
+    const extra = fitWorld - viewH;
+    viewTop -= extra * 0.62;
+    viewH = fitWorld;
+    let viewBot = viewTop + viewH;
+    if (viewBot > WORLD_H) {
+      viewTop -= viewBot - WORLD_H;
+      viewBot = WORLD_H;
+    }
+    if (shellY != null && shellY < viewTop + 24) {
+      const need = viewTop + 24 - shellY;
+      const room = viewBot - (maxY + 10);
+      const shift = Math.min(need, Math.max(0, room));
+      viewTop -= shift;
+    }
+  } else {
+    scale = clear / viewH;
+    viewTop = minY - padTop;
+  }
+
+  return {
+    scale,
+    originX: (w - WORLD_W * scale) / 2,
+    originY: topI - viewTop * scale,
+  };
+}
+
+function boardInsets(canvas) {
+  const board = canvas.parentElement?.getBoundingClientRect();
+  if (!board || board.width < 2 || board.height < 2) return null;
+  const hud = document.getElementById("hud");
+  const controls = document.getElementById("controls");
+  let top = 0;
+  let bottom = 0;
+  if (hud && !hud.hidden) {
+    top = Math.max(0, hud.getBoundingClientRect().bottom - board.top);
+  }
+  if (controls && !controls.hidden) {
+    bottom = Math.max(0, board.bottom - controls.getBoundingClientRect().top);
+  }
+  return { cssW: board.width, cssH: board.height, top, bottom };
+}
+
+function terrainSpan(battle) {
+  let minY = Infinity;
+  let maxY = -Infinity;
+  const terrain = battle.terrain;
+  for (let x = 0; x < terrain.length; x += 4) {
+    const y = terrain[x];
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  for (const tank of battle.tanks) {
+    const y = terrainY(terrain, tank.x);
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  return { minY, maxY };
+}
+
+let viewState = null;
+
+function present(battle, target) {
+  if (!viewState || viewState.battle !== battle) {
+    viewState = { battle, scale: target.scale, ox: target.originX, oy: target.originY };
+    return viewState;
+  }
+  const k = 0.18;
+  viewState.scale += (target.scale - viewState.scale) * k;
+  viewState.ox += (target.originX - viewState.ox) * k;
+  viewState.oy += (target.originY - viewState.oy) * k;
+  return viewState;
+}
+
 export function render(ctx, game) {
+  const canvas = ctx.canvas;
+  const rect = canvas.getBoundingClientRect();
+  const dpr = Math.min(typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1, 2);
+  const pw = Math.max(2, Math.round((rect.width || WORLD_W) * dpr));
+  const ph = Math.max(2, Math.round((rect.height || WORLD_H) * dpr));
+  if (canvas.width !== pw || canvas.height !== ph) {
+    canvas.width = pw;
+    canvas.height = ph;
+  }
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = "#05060a";
-  ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+  ctx.fillRect(0, 0, pw, ph);
   const battle = game.battle;
-  if (!battle) return;
+  if (!battle) {
+    viewState = null;
+    return;
+  }
 
   const pack = getLayers(battle);
   if (!pack.skyReady) {
@@ -458,7 +581,27 @@ export function render(ctx, game) {
   const amp = game.reduced ? 0 : game.shake;
   const ox = Math.sin(game.time * 43) * amp;
   const oy = Math.cos(game.time * 37) * amp * 0.6;
-  ctx.setTransform(1, 0, 0, 1, ox, oy);
+  const insets = boardInsets(canvas) || { cssW: WORLD_W, cssH: WORLD_H, top: 0, bottom: 0 };
+  const span = terrainSpan(battle);
+  let shellY = null;
+  for (const shot of battle.projectiles) {
+    if (shot.mode === "burrow") continue;
+    shellY = shellY == null ? shot.y : Math.min(shellY, shot.y);
+  }
+  const framed = frameView({
+    cssW: insets.cssW,
+    cssH: insets.cssH,
+    dpr,
+    insetTop: insets.top,
+    insetBottom: insets.bottom,
+    minY: span.minY,
+    maxY: span.maxY,
+    shellY,
+  });
+  const view = present(battle, framed);
+  ctx.fillStyle = battle.map.palette.skyTop || "#05060a";
+  ctx.fillRect(0, 0, pw, ph);
+  ctx.setTransform(view.scale, 0, 0, view.scale, view.ox + ox * view.scale, view.oy + oy * view.scale);
   ctx.drawImage(pack.sky, 0, 0);
   drawDust(ctx, battle.map, game.time);
   ctx.drawImage(pack.ground, 0, 0);

@@ -451,6 +451,74 @@ input[type="range"] {
   .wpn { padding: 0 6px; letter-spacing: 0; }
 }
 
+/* Short landscape: the 16:9 world was a small strip between the bars.
+   Cover the stage with the battlefield and float the chrome on top of it. */
+@media (max-height: 520px) {
+  #stage { padding-left: 0; padding-right: 0; }
+
+  #board {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: env(safe-area-inset-left);
+    right: env(safe-area-inset-right);
+  }
+
+  #hud {
+    position: absolute;
+    top: 0;
+    left: env(safe-area-inset-left);
+    right: env(safe-area-inset-right);
+    z-index: 6;
+    flex-wrap: nowrap;
+    gap: 8px;
+    padding: 3px 8px 10px;
+    background: linear-gradient(to bottom, rgba(7, 8, 12, 0.94) 0%, rgba(7, 8, 12, 0.72) 70%, rgba(7, 8, 12, 0) 100%);
+    border-bottom: 0;
+    pointer-events: none;
+  }
+
+  #hud button { pointer-events: auto; }
+
+  .readout { flex: 1 1 0; width: auto; min-width: 0; }
+  .readout .name { font-size: 11px; margin-bottom: 1px; }
+  .stat, #air-value, #turn-label { display: none; }
+  .bar { height: 5px; margin-bottom: 2px; }
+  #wind-box { min-width: 58px; }
+  #wind-arrow { font-size: 16px; }
+  #wind-value { font-size: 11px; }
+
+  #controls {
+    position: absolute;
+    bottom: 0;
+    left: env(safe-area-inset-left);
+    right: env(safe-area-inset-right);
+    z-index: 6;
+    gap: 3px 8px;
+    padding: 16px 8px calc(4px + env(safe-area-inset-bottom));
+    background: linear-gradient(to top, rgba(7, 8, 12, 0.96) 64%, rgba(7, 8, 12, 0) 100%);
+    border-top: 0;
+  }
+
+  button { min-height: 32px; min-width: 36px; padding: 0 8px; }
+  #btn-fire { min-height: 32px; min-width: 60px; }
+  #angle-val, #power-val { font-size: 16px; }
+  .numblock { min-width: 52px; }
+  .numblock .k { font-size: 10px; }
+  input[type="range"] { width: 64px; }
+  .wpn { min-height: 30px; padding: 0 6px; font-size: 12px; }
+  #phase-lamp { font-size: 12px; }
+  #status-line { min-width: 0; font-size: 11px; }
+
+  #banner { top: 42px; font-size: 11px; padding: 4px 10px; }
+  #ticker { bottom: 86px; max-width: 62%; font-size: 12px; }
+}
+
+/* The sliders are what push FIRE onto its own row on a narrow phone. */
+@media (max-height: 520px) and (max-width: 800px) {
+  #controls input[type="range"] { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto; }
 }
