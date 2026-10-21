@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#07080c" />
+  <meta name="description" content="Mars Tanks is a widescreen artillery duel across the solar system. Angle, power, limited fuel. No rangefinder." />
+  <title>Mars Tanks</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="rotate-gate" role="status">
+    <div class="gate-tank" aria-hidden="true"></div>
+    <p class="eyebrow">MARS TANKS</p>
+    <h1>Rotate to landscape</h1>
+    <p>This range is widescreen. Turn the device sideways, or widen the window.</p>
+  </div>
+
+  <div id="stage">
+    <header id="hud" hidden>
+      <div class="hud-id">
+        <div id="hud-map">TRANQUILITY SHELF</div>
+        <div id="hud-meta">MOON · 0.17 g · VACUUM</div>
+      </div>
+      <div class="readout" id="read-0"></div>
+      <div id="wind-box">
+        <div id="wind-arrow" aria-hidden="true">·</div>
+        <div id="wind-value">VACUUM</div>
+        <div id="air-value">NO DRAG</div>
+      </div>
+      <div class="readout" id="read-1"></div>
+      <div class="hud-actions">
+        <div id="turn-label">LANCER</div>
+        <button type="button" id="btn-mute">SOUND</button>
+        <button type="button" id="btn-abort">ABORT</button>
+      </div>
+    </header>
+
+    <div id="board">
+      <canvas id="game" width="1600" height="900"></canvas>
+      <div id="banner" hidden></div>
+      <div id="ticker" hidden aria-live="polite"></div>
+
+      <section id="screen-title" class="screen">
+        <div class="panel">
+          <p class="eyebrow">SOLAR ARTILLERY</p>
+          <h1>MARS TANKS</h1>
+          <p class="tag">One shell a turn. No rangefinder. Thirty worlds, and none of them are Earth.</p>
+          <div class="diff" id="diff" role="group" aria-label="Difficulty">
+            <button type="button" data-diff="easy">EASY</button>
+            <button type="button" data-diff="normal">NORMAL</button>
+            <button type="button" data-diff="hard">HARD</button>
+          </div>
+          <div class="menu-actions">
+            <button type="button" id="btn-campaign" class="primary">CAMPAIGN</button>
+            <button type="button" id="btn-skirmish">SKIRMISH</button>
+            <button type="button" id="btn-help">HOW TO PLAY</button>
+          </div>
+          <p id="file-warn" class="warn" hidden></p>
+        </div>
+      </section>
+
+      <section id="screen-help" class="screen" hidden>
+        <div class="panel help-panel">
+          <p class="eyebrow">FIELD MANUAL</p>
+          <h2>How the shot works</h2>
+          <div class="help-grid">
+            <p><strong>Drive.</strong> Hold the arrows. Fuel is a tank you do not get back, except for one cache on the map. Uphill costs more and can stop you. Downhill is cheap and fast. Ice slides. Lava burns. Methane shallows drag the tracks.</p>
+            <p><strong>Aim.</strong> Space, or AIM, locks the hull. Set angle and power with the buttons or arrows. 0° is flat to the right, 90° is straight up, 180° is flat to the left. There is no arc. The barrel only shows where the gun is pointed.</p>
+            <p><strong>Worlds.</strong> Gravity drops the shell. Vacuum has no wind and no drag. Thin air (Mars, Pluto, Triton) adds a wind arrow that changes between turns. Thick air (Titan) eats speed, so use more power and a lower angle. Microgravity barely drops a shot, and every shell fuses out after 9 seconds, so fire low.</p>
+            <p><strong>Damage.</strong> A hurt tank is slower, holds less fuel, and cannot push a shot as far. The power dial shows the new cap. Heavy hits also dig the ground. If the shelf falls out from under you, you take fall damage. Geysers kick shells upward.</p>
+            <p><strong>Weapons.</strong> HE is unlimited. The rest are scarce and refill each map. Penetrator is fast and flat. Siege digs a crater. Cluster splits. Mole burrows, then blows. Ricochet skips once. Ion cuts their range and speed. Plasma glasses the ground so tanks slide.</p>
+            <p><strong>Controls.</strong> Every command is a button, so a phone in landscape plays the same game. Keyboard: A/D or arrows drive, Space aims then fires, arrows in aim change angle and power, 1–8 pick weapons, Enter fires, Esc goes back to driving.</p>
+          </div>
+          <button type="button" id="btn-help-back" class="primary">BACK</button>
+        </div>
+      </section>
+
+      <section id="screen-maps" class="screen" hidden>
+        <div class="panel maps-panel">
+          <div class="maps-head">
+            <div>
+              <p class="eyebrow">SKIRMISH</p>
+              <h2>Choose a world</h2>
+            </div>
+            <button type="button" id="btn-maps-back">BACK</button>
+          </div>
+          <div id="map-grid" class="map-grid"></div>
+          <div class="dock">
+            <p id="map-blurb">Choose a world.</p>
+            <button type="button" id="btn-cpu" class="primary" disabled>VS CPU</button>
+            <button type="button" id="btn-p2" disabled>TWO PILOTS</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-pass" class="screen" hidden>
+        <div class="panel">
+          <p class="eyebrow">HAND OVER THE DEVICE</p>
+          <h2 id="pass-name">PILOT 2</h2>
+          <p>Their angle is covered. Take the controls when you are looking and they are not.</p>
+          <button type="button" id="btn-ready" class="primary">READY</button>
+        </div>
+      </section>
+
+      <section id="screen-victory" class="screen" hidden>
+        <div class="panel">
+          <p class="eyebrow" id="victory-kicker">ENGAGEMENT</p>
+          <h2 id="victory-title">LANCER HOLDS THE FIELD</h2>
+          <p id="victory-stats"></p>
+          <div class="menu-actions">
+            <button type="button" id="btn-next" class="primary" hidden>NEXT WORLD</button>
+            <button type="button" id="btn-rematch">REMATCH</button>
+            <button type="button" id="btn-victory-maps">MAPS</button>
+            <button type="button" id="btn-victory-title">TITLE</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <footer id="controls" hidden>
+      <div class="cluster">
+        <button type="button" id="btn-left" aria-label="Drive left">◀</button>
+        <button type="button" id="btn-right" aria-label="Drive right">▶</button>
+        <button type="button" id="btn-aim">AIM</button>
+      </div>
+      <div class="cluster dial">
+        <button type="button" id="btn-angle-down" aria-label="Decrease angle">−</button>
+        <label class="numblock" for="angle-slider">
+          <span class="k">ANGLE</span>
+          <span id="angle-val">062°</span>
+        </label>
+        <button type="button" id="btn-angle-up" aria-label="Increase angle">+</button>
+        <input id="angle-slider" type="range" min="0" max="180" step="1" aria-label="Aim angle" />
+      </div>
+      <div class="cluster dial">
+        <button type="button" id="btn-power-down" aria-label="Decrease power">−</button>
+        <label class="numblock" for="power-slider">
+          <span class="k">POWER</span>
+          <span id="power-val">045</span>
+        </label>
+        <button type="button" id="btn-power-up" aria-label="Increase power">+</button>
+        <input id="power-slider" type="range" min="5" max="100" step="1" aria-label="Shot power" />
+      </div>
+      <button type="button" id="btn-fire" class="primary">FIRE</button>
+      <div id="weapon-row">
+        <div id="phase-lamp">DRIVE</div>
+        <div id="weapons"></div>
+        <div id="status-line"></div>
+      </div>
+    </footer>
+  </div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
