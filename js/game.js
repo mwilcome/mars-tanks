@@ -1,5 +1,19 @@
 import { planAiTurn } from "./ai.js";
-import { campaignClimbMul, campaignFuelBase, clamp, damageScaleFor, gravityPx, maxPower } from "./constants.js";
+import {
+  applyDebugGrant,
+  buyAmmo,
+  buyUpgrade,
+  buyWeapon,
+  careerInProgress,
+  careerStats,
+  freshCareer,
+  loadoutFromCareer,
+  purseFor,
+  SHOP_WEAPONS,
+  syncAmmo,
+  UPGRADES,
+} from "./campaign.js";
+import { clamp, damageScaleFor, engineMul, gravityPx, maxPower } from "./constants.js";
 import { MAPS, mapById } from "./maps.js";
 import {
   applyEnvironment,
@@ -16,7 +30,9 @@ import {
 import { getWeapon } from "./weapons.js";
 
 const STORE_CAMP = "mars-tanks-campaign";
+const STORE_CAREER = "mars-tanks-career";
 const STORE_DIFF = "mars-tanks-difficulty";
+const DIFFICULTIES = ["easy", "normal", "hard"];
 
 function readStore(key) {
   try {
@@ -34,13 +50,66 @@ function writeStore(key, value) {
   }
 }
 
+function clampInt(value, max) {
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(max, n));
+}
+
+function normalizeCareer(raw) {
+  const career = freshCareer();
+  if (!raw || typeof raw !== "object") return career;
+  career.index = clampInt(raw.index, MAPS.length);
+  career.credits = Math.max(0, Math.floor(Number(raw.credits) || 0));
+  career.fuel = clampInt(raw.fuel, UPGRADES.fuel.values.length - 1);
+  career.climb = clampInt(raw.climb, UPGRADES.climb.values.length - 1);
+  career.armor = clampInt(raw.armor, UPGRADES.armor.values.length - 1);
+  career.gun = clampInt(raw.gun, UPGRADES.gun.values.length - 1);
+  if (raw.weapons && typeof raw.weapons === "object") {
+    for (const spec of SHOP_WEAPONS) {
+      if (Object.prototype.hasOwnProperty.call(raw.weapons, spec.id)) {
+        career.weapons[spec.id] = Math.max(0, Math.floor(Number(raw.weapons[spec.id]) || 0));
+      }
+    }
+  }
+  return career;
+}
+
+function loadCareers(difficulty) {
+  const blank = () => ({
+    easy: freshCareer(),
+    normal: freshCareer(),
+    hard: freshCareer(),
+  });
+  try {
+    const raw = localStorage.getItem(STORE_CAREER);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        easy: normalizeCareer(parsed.easy),
+        normal: normalizeCareer(parsed.normal),
+        hard: normalizeCareer(parsed.hard),
+      };
+    }
+  } catch {
+    /* private mode or an older save */
+  }
+  const careers = blank();
+  const savedCamp = Number(readStore(STORE_CAMP));
+  if (Number.isFinite(savedCamp) && savedCamp > 0 && DIFFICULTIES.includes(difficulty)) {
+    careers[difficulty].index = clampInt(savedCamp, MAPS.length);
+  }
+  return careers;
+}
+
 export class Game {
   constructor() {
     this.mode = "title";
     const savedDiff = readStore(STORE_DIFF);
-    this.difficulty = ["easy", "normal", "hard"].includes(savedDiff) ? savedDiff : "normal";
-    const savedCamp = Number(readStore(STORE_CAMP));
-    this.campaignIndex = Number.isFinite(savedCamp) ? Math.max(0, savedCamp) : 0;
+    this.difficulty = DIFFICULTIES.includes(savedDiff) ? savedDiff : "normal";
+    this.careers = loadCareers(this.difficulty);
+    this.campaignIndex = this.careers[this.difficulty].index;
+    this.saveCareers();
     this.battle = null;
     this.match = null;
     this.fx = [];
@@ -58,7 +127,17 @@ export class Game {
     this.attract = false;
     this.debugUpgrades = false;
     this.devLevel = 0;
+    this.lastPurse = null;
+    this.shopNote = "";
     this.enterTitle();
+  }
+
+  get career() {
+    return this.careers[this.difficulty];
+  }
+
+  saveCareers() {
+    writeStore(STORE_CAREER, JSON.stringify(this.careers));
   }
 
   enterTitle() {
@@ -75,9 +154,11 @@ export class Game {
   }
 
   setDifficulty(level) {
-    if (!["easy", "normal", "hard"].includes(level)) return;
+    if (!DIFFICULTIES.includes(level)) return;
     this.difficulty = level;
     writeStore(STORE_DIFF, level);
+    this.campaignIndex = this.career.index;
+    this.saveCareers();
   }
 
   setBanner(text, seconds = 1.5) {
@@ -113,20 +194,22 @@ export class Game {
       names,
       seed: seed ?? ((Math.random() * 1e9) >>> 0),
     };
-    const level = campaign ? (levelIndex ?? this.campaignIndex) : null;
-    let fuelBase = level == null ? 100 : campaignFuelBase(level, MAPS.length);
-    let climbMul = level == null ? 1 : campaignClimbMul(level, MAPS.length);
-    if (this.debugUpgrades) {
-      fuelBase = campaignFuelBase(MAPS.length - 1, MAPS.length);
-      climbMul = campaignClimbMul(MAPS.length - 1, MAPS.length);
-    }
-    this.battle = createBattle(map, {
+    const options = {
       seed: this.match.seed,
       names,
-      fuelBase,
-      climbMul,
       damageScale: damageScaleFor(this.difficulty),
-    });
+    };
+    if (campaign) {
+      const player = careerStats(this.career);
+      const enemy = careerStats(freshCareer());
+      options.loads = [
+        { ...player, loadout: loadoutFromCareer(this.career) },
+        { ...enemy, loadout: loadoutFromCareer(freshCareer()) },
+      ];
+      this.match.levelIndex = levelIndex ?? this.campaignIndex;
+    }
+    this.match.settled = false;
+    this.battle = createBattle(map, options);
     this.attract = false;
     this.fx = [];
     this.shake = 0;
@@ -139,14 +222,24 @@ export class Game {
     this.sfxQueue.push("blip");
   }
 
-  /** Hidden phone testing: `?level=N` (1-based) and/or `?debug=1` for a full tank. */
+  /**
+   * Hidden phone testing. `?level=N` is 1-based and starts that campaign map.
+   * `?debug=1` banks credits, maxes fuel and traction, and unlocks every gun.
+   * The grant is saved. Armor and the gun stay so the depot still has a purchase.
+   */
   applyDebugLaunch({ level, upgrades } = {}) {
     this.debugUpgrades = !!upgrades;
+    if (upgrades) {
+      this.careers[this.difficulty] = applyDebugGrant(this.career);
+      this.saveCareers();
+    }
     if (level == null || level === "") return false;
     const n = Number(level);
     if (!Number.isInteger(n) || n < 1) return false;
     this.devLevel = Math.min(MAPS.length, n);
     this.campaignIndex = this.devLevel - 1;
+    this.career.index = this.campaignIndex;
+    this.saveCareers();
     this.startCampaign();
     return true;
   }
@@ -161,7 +254,8 @@ export class Game {
   startCampaign() {
     if (this.campaignIndex >= MAPS.length) {
       this.campaignIndex = 0;
-      writeStore(STORE_CAMP, "0");
+      this.career.index = 0;
+      this.saveCareers();
     }
     const map = MAPS[this.campaignIndex];
     this.startMatch(map.id, { versus: "cpu", campaign: true });
@@ -191,7 +285,14 @@ export class Game {
     const tank = battle.tanks[battle.turn];
     const weapon = getWeapon(id);
     if (weapon.hidden) return;
-    if (!weapon.unlimited && !(tank.loadout[id] > 0)) {
+    const count = tank.loadout[id];
+    const owned = weapon.unlimited || Number.isFinite(count);
+    if (!owned) {
+      this.sfxQueue.push("denied");
+      this.setStatus("LOCKED");
+      return;
+    }
+    if (!weapon.unlimited && !(count > 0)) {
       this.sfxQueue.push("denied");
       this.setStatus("NO AMMO");
       return;
@@ -394,16 +495,86 @@ export class Game {
   }
 
   finishMatch() {
+    if (this.match?.settled) return;
+    if (this.match) this.match.settled = true;
     const battle = this.battle;
     battle.winner = updateWinner(battle);
     battle.phase = "over";
     this.ai = null;
     this.driving = false;
-    this.mode = "victory";
-    if (this.match?.kind === "campaign" && battle.winner === 0) {
-      this.campaignIndex = Math.min(MAPS.length, this.campaignIndex + 1);
-      writeStore(STORE_CAMP, String(this.campaignIndex));
+    const campaign = this.match?.kind === "campaign";
+    const won = campaign && battle.winner === 0;
+    if (campaign) {
+      let career = syncAmmo(this.career, battle.tanks[0].loadout);
+      if (won) {
+        const player = battle.tanks[0];
+        const purse = purseFor({
+          levelIndex: this.campaignIndex,
+          dealt: player.dealt,
+          shots: player.shots,
+          hits: player.hits,
+          killed: true,
+          difficulty: this.difficulty,
+        });
+        career.credits += purse.total;
+        career.index = Math.min(MAPS.length, career.index + 1);
+        this.campaignIndex = career.index;
+        this.lastPurse = purse;
+        this.shopNote = "";
+      }
+      this.careers[this.difficulty] = career;
+      this.saveCareers();
     }
+    this.mode = won ? "shop" : "victory";
+  }
+
+  purchase(kind, id) {
+    if (this.mode !== "shop") return { ok: false, reason: "closed" };
+    const fn = kind === "upgrade" ? buyUpgrade : kind === "weapon" ? buyWeapon : kind === "ammo" ? buyAmmo : null;
+    if (!fn) return { ok: false, reason: "unknown" };
+    const result = fn(this.career, id);
+    if (!result.ok) {
+      const notes = {
+        credits: "NOT ENOUGH CREDITS",
+        locked: "LOCKED",
+        max: "MAXED",
+        owned: "ALREADY OWNED",
+      };
+      this.shopNote = notes[result.reason] || "UNAVAILABLE";
+      return result;
+    }
+    this.careers[this.difficulty] = result.career;
+    this.shopNote = "";
+    this.saveCareers();
+    return result;
+  }
+
+  openDepot() {
+    this.attract = false;
+    this.lastPurse = null;
+    this.shopNote = "";
+    this.mode = "shop";
+  }
+
+  continueFromShop() {
+    if (this.campaignIndex >= MAPS.length) {
+      this.enterTitle();
+      return;
+    }
+    this.startCampaign();
+  }
+
+  resetCampaign() {
+    this.careers[this.difficulty] = freshCareer(0);
+    this.campaignIndex = 0;
+    this.lastPurse = null;
+    this.shopNote = "";
+    this.saveCareers();
+    this.startCampaign();
+  }
+
+  showDepotOnTitle() {
+    return careerInProgress(this.career);
   }
 
   rematch() {
@@ -415,10 +586,6 @@ export class Game {
   }
 
   nextCampaign() {
-    if (this.campaignIndex >= MAPS.length) {
-      this.campaignIndex = 0;
-      writeStore(STORE_CAMP, "0");
-    }
     this.startCampaign();
   }
 
@@ -507,9 +674,11 @@ export class Game {
   tankReadout(tank) {
     const cap = fuelCapFor(tank);
     const powerCap = maxPowerFor(tank);
-    const speed = Math.round((0.38 + 0.62 * (tank.hp / 100)) * (1 - (tank.debuff?.speedCut || 0)) * 100);
+    const hpMax = tank.hpMax || 100;
+    const speed = Math.round(engineMul(tank.hp, tank.debuff?.speedCut || 0, hpMax) * 100);
     return {
       hp: Math.max(0, Math.round(tank.hp)),
+      hpMax,
       fuel: Math.max(0, Math.round(tank.fuel)),
       fuelCap: Math.round(cap),
       powerCap,

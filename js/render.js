@@ -236,8 +236,10 @@ function drawTank(ctx, tank, battle, time, active) {
 
   if (!tank.alive) return;
 
-  if (tank.hp < 78) {
-    const puffs = tank.hp < 40 ? 3 : 1;
+  const hpMax = tank.hpMax || 100;
+  const hpFrac = clamp(tank.hp / hpMax, 0, 1);
+  if (hpFrac < 0.78) {
+    const puffs = hpFrac < 0.4 ? 3 : 1;
     for (let i = 0; i < puffs; i++) {
       const cycle = (time * 28 + i * 17) % 26;
       ctx.globalAlpha = 0.28 * (1 - cycle / 26);
@@ -252,8 +254,8 @@ function drawTank(ctx, tank, battle, time, active) {
   ctx.fillStyle = "rgba(0,0,0,0.55)";
   roundRect(ctx, x - 28, gy - 62, 56, 8, 2);
   ctx.fill();
-  ctx.fillStyle = tank.hp > 35 ? "#7ddea0" : "#ff5d4a";
-  roundRect(ctx, x - 27, gy - 61, 54 * clamp(tank.hp / 100, 0, 1), 6, 2);
+  ctx.fillStyle = hpFrac > 0.35 ? "#7ddea0" : "#ff5d4a";
+  roundRect(ctx, x - 27, gy - 61, 54 * hpFrac, 6, 2);
   ctx.fill();
 
   ctx.font = "600 15px Share Tech Mono, ui-monospace, monospace";

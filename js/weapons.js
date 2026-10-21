@@ -1,4 +1,4 @@
-/** Arsenal. HE is unlimited. Other counts are per battle, refilled each map. */
+/** Arsenal. HE is unlimited. Skirmish refills the rest each battle. Campaign ammo is bought and kept. */
 
 export const WEAPONS = [
   {

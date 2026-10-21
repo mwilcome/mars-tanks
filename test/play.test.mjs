@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { traceShot } from "../js/ai.js";
-import { campaignFuelBase } from "../js/constants.js";
+import { careerStats, freshCareer } from "../js/campaign.js";
 import { Game } from "../js/game.js";
 import { MAPS } from "../js/maps.js";
 
@@ -47,7 +47,9 @@ test("level and debug links jump a campaign with the matching tank", () => {
   assert.equal(jumped.applyDebugLaunch({ level: "6", upgrades: false }), true);
   assert.equal(jumped.battle.map.id, MAPS[5].id);
   assert.equal(jumped.match.kind, "campaign");
-  assert.equal(jumped.battle.tanks[0].fuelBase, campaignFuelBase(5, MAPS.length));
+  assert.equal(jumped.battle.tanks[0].fuelBase, careerStats(freshCareer()).fuelBase);
+  assert.equal(jumped.battle.tanks[0].loadout.he, Infinity);
+  assert.equal(jumped.battle.tanks[0].loadout.ap, undefined);
   assert.equal(jumped.battle.phase, "move");
   jumped.pressFire();
   assert.equal(jumped.battle.phase, "fly");
@@ -57,6 +59,11 @@ test("level and debug links jump a campaign with the matching tank", () => {
   assert.equal(filled.battle.map.id, MAPS[0].id);
   assert.equal(filled.battle.tanks[0].fuelBase, 100);
   assert.ok(filled.battle.tanks[0].climbMul > 0.99);
+  assert.ok(filled.career.credits >= 4000);
+  assert.ok(filled.career.weapons.plasma >= 12);
+  assert.equal(filled.career.armor, 0);
+  assert.equal(filled.battle.tanks[1].fuelBase, careerStats(freshCareer()).fuelBase);
+  assert.equal(filled.battle.tanks[1].loadout.ap, undefined);
 
   const ignored = new Game();
   assert.equal(ignored.applyDebugLaunch({ level: "nope" }), false);

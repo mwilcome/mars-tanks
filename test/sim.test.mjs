@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { planAiTurn, traceShot } from "../js/ai.js";
-import { campaignClimbMul, campaignFuelBase, fuelCap, maxPower } from "../js/constants.js";
+import { careerStats, freshCareer, UPGRADES } from "../js/campaign.js";
+import { fuelCap, maxPower } from "../js/constants.js";
 import { MAPS } from "../js/maps.js";
 import {
   applyEnvironment,
@@ -186,17 +187,21 @@ test("harder difficulties soak the same blast", () => {
   assert.ok(normal > 15 && normal < 70, `normal center left ${normal}`);
 });
 
-test("campaign fuel and climb grow, and map 1 cannot cross the field", () => {
-  const early = campaignFuelBase(0, 30);
-  const mid = campaignFuelBase(14, 30);
-  const late = campaignFuelBase(29, 30);
-  assert.ok(early < mid && mid < late, `${early} ${mid} ${late}`);
+test("baseline fuel cannot cross the field, and max traction can climb", () => {
+  const earlyStats = careerStats(freshCareer());
+  const maxed = freshCareer();
+  maxed.fuel = UPGRADES.fuel.values.length - 1;
+  maxed.climb = UPGRADES.climb.values.length - 1;
+  const lateStats = careerStats(maxed);
+  const early = earlyStats.fuelBase;
+  const late = lateStats.fuelBase;
+  assert.ok(early < late, `${early} ${late}`);
   assert.ok(early <= 40 && late >= 95);
-  assert.ok(campaignClimbMul(0, 30) < campaignClimbMul(29, 30));
+  assert.ok(earlyStats.climbMul < lateStats.climbMul);
   assert.ok(fuelCap(100, early) === early);
   assert.ok(fuelCap(30, early) < early);
 
-  const battle = createBattle(MAPS[0], { seed: 1, fuelBase: early, climbMul: campaignClimbMul(0, 30) });
+  const battle = createBattle(MAPS[0], { seed: 1, fuelBase: early, climbMul: earlyStats.climbMul });
   battle.terrain.fill(640);
   battle.hazards = [];
   battle.tanks[0].x = 200;
@@ -218,8 +223,8 @@ test("campaign fuel and climb grow, and map 1 cannot cross the field", () => {
     hill.hazards = [];
     return driveTank(hill, 0, 1, 0.2);
   };
-  assert.equal(steep(campaignClimbMul(0, 30)).blocked, true);
-  assert.equal(steep(campaignClimbMul(29, 30)).moved, true);
+  assert.equal(steep(earlyStats.climbMul).blocked, true);
+  assert.equal(steep(lateStats.climbMul).moved, true);
 });
 
 test("special ammo is scarce and HE is not", () => {

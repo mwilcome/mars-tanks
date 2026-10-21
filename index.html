@@ -58,6 +58,8 @@
           </div>
           <div class="menu-actions">
             <button type="button" id="btn-campaign" class="primary">CAMPAIGN</button>
+            <button type="button" id="btn-depot" hidden>DEPOT</button>
+            <button type="button" id="btn-new-campaign" hidden>NEW CAMPAIGN</button>
             <button type="button" id="btn-skirmish">SKIRMISH</button>
             <button type="button" id="btn-help">HOW TO PLAY</button>
           </div>
@@ -70,12 +72,13 @@
           <p class="eyebrow">FIELD MANUAL</p>
           <h2>How the shot works</h2>
           <div class="help-grid">
-            <p><strong>Drive.</strong> Hold the arrows on the same turn you aim and fire. Fuel does not come back, except one cache on the map. The first campaign worlds issue a short tank and a weaker climb. Later worlds issue more fuel and let you take steeper ground. Uphill costs more and can stop you. Downhill is cheaper and fast. Ice slides. Lava burns. Methane shallows drag the tracks.</p>
+            <p><strong>Drive.</strong> Hold the arrows on the same turn you aim and fire. Fuel does not come back during a battle, except one cache on the map. A new campaign starts with a short tank and weak traction, so early hills can stop you. The depot between wins sells a larger tank, better traction, thicker armor, and a stronger gun. Uphill costs more. Downhill is cheaper and fast. Ice slides. Lava burns. Methane shallows drag the tracks.</p>
             <p><strong>Aim.</strong> Set angle and power whenever it is your turn, then FIRE. You do not lock the hull first. 0° is flat to the right, 90° is straight up, 180° is flat to the left. There is no arc. The barrel only shows where the gun is pointed.</p>
             <p><strong>Worlds.</strong> Gravity drops the shell. Vacuum has no wind and no drag. Thin air (Mars, Pluto, Triton) adds a wind arrow that changes between turns. Thick air (Titan) eats speed, so use more power and a lower angle. Microgravity barely drops a shot, and every shell fuses out after 9 seconds, so fire low.</p>
             <p><strong>Damage.</strong> A shell on the hull is a direct hit. Splash still hurts, and it falls off with distance from the tank. On Easy a centered HE shell kills, and one that only catches the tracks takes two. Normal is about two or three of those. Hard is about three or four. A hurt tank is slower, holds less fuel, and cannot push a shot as far. The power dial shows the new cap. Heavy hits also dig the ground. If the shelf falls out from under you, you take fall damage. Geysers kick shells upward.</p>
-            <p><strong>Weapons.</strong> HE is unlimited. The rest are scarce and refill each map. Penetrator is fast and flat. Siege digs a crater. Cluster splits. Mole burrows, then blows. Ricochet skips once. Ion cuts their range and speed. Plasma glasses the ground so tanks slide.</p>
-            <p><strong>Controls.</strong> Every command is a button, so a phone in landscape plays the same game. Keyboard: A and D drive, arrows change angle and power, Space, Enter, or F fires, 1–8 pick weapons.</p>
+            <p><strong>Weapons.</strong> Campaign issues HE only, and it never runs out. Other guns are bought at the depot once you have cleared enough worlds. The unlock includes a few shells. More shells are sold there, and whatever you do not fire stays for the next map. Skirmish still hands you every weapon, refilled each battle. Penetrator is fast and flat. Siege digs a crater. Cluster splits. Mole burrows, then blows. Ricochet skips once. Ion cuts their range and speed. Plasma glasses the ground so tanks slide.</p>
+            <p><strong>Credits.</strong> Winning a campaign map pays for the win, the damage you dealt, the share of shots that hit, and the kill. Spend it at the depot before the next world. Easy, Normal, and Hard each remember their own map, credits, and purchases on this device. NEW CAMPAIGN on the title erases that difficulty and starts over. Skirmish does not pay credits or use those purchases.</p>
+            <p><strong>Controls.</strong> Every command is a button, so a phone in landscape plays the same game. The depot rows are buttons too. Keyboard: A and D drive, arrows change angle and power, Space, Enter, or F fires, 1–8 pick weapons you own.</p>
           </div>
           <button type="button" id="btn-help-back" class="primary">BACK</button>
         </div>
@@ -105,6 +108,25 @@
           <h2 id="pass-name">PILOT 2</h2>
           <p>Their angle is covered. Take the controls when you are looking and they are not.</p>
           <button type="button" id="btn-ready" class="primary">READY</button>
+        </div>
+      </section>
+
+      <section id="screen-shop" class="screen" hidden>
+        <div class="panel shop-panel">
+          <div class="maps-head">
+            <div>
+              <p class="eyebrow">SUPPLY DEPOT</p>
+              <h2 id="shop-title">AFTER ACTION</h2>
+            </div>
+            <div id="shop-credits">0</div>
+          </div>
+          <p id="shop-purse"></p>
+          <div id="shop-list"></div>
+          <p id="shop-note" aria-live="polite"></p>
+          <div class="dock">
+            <button type="button" id="btn-shop-next" class="primary">NEXT WORLD</button>
+            <button type="button" id="btn-shop-title">TITLE</button>
+          </div>
         </div>
       </section>
 

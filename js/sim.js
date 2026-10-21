@@ -35,11 +35,11 @@ export function groundNormal(terrain, x) {
 }
 
 export function maxPowerFor(tank) {
-  return maxPower(tank.hp, tank.debuff?.powerCut || 0);
+  return maxPower(tank.hp, tank.debuff?.powerCut || 0, tank.hpMax ?? 100, tank.gunBonus || 0);
 }
 
 export function fuelCapFor(tank) {
-  return fuelCap(tank.hp, tank.fuelBase ?? 100);
+  return fuelCap(tank.hp, tank.fuelBase ?? 100, tank.hpMax ?? 100);
 }
 
 /** Tracks and hull, in world pixels. Origin is the ground under the tank. */
@@ -77,7 +77,7 @@ export function blastDamage(weapon, tankX, groundY, x, y, scale = 1) {
 
 export function aimWobbleFor(tank) {
   const extra = tank.debuff ? 1.4 : 0;
-  let w = aimWobbleDeg(tank.hp, extra);
+  let w = aimWobbleDeg(tank.hp, extra, tank.hpMax ?? 100);
   if (tank.inGeyser) w += 2.2;
   return w;
 }
@@ -107,18 +107,21 @@ function findSpawn(terrain, a, b) {
 
 function makeTank(side, x, terrain, name, load = {}) {
   const fuelBase = load.fuelBase ?? 100;
+  const hpMax = load.hpMax ?? 100;
   return {
     side,
     name,
     x,
-    hp: 100,
+    hp: hpMax,
+    hpMax,
+    gunBonus: load.gunBonus ?? 0,
     fuel: fuelBase,
     fuelBase,
     climbMul: load.climbMul ?? 1,
     aim: side === 0 ? 62 : 118,
     power: 45,
     weaponId: "he",
-    loadout: freshLoadout(),
+    loadout: load.loadout ? { ...load.loadout } : freshLoadout(),
     distance: 0,
     tread: 0,
     slideV: 0,
@@ -151,13 +154,20 @@ export function createBattle(map, options = {}) {
   const terrain = options.terrain ? Float32Array.from(options.terrain) : generateTerrain(map);
   const hazards = options.hazards || generateHazards(map, terrain);
   const names = options.names || ["LANCER", "DRIFT"];
-  const load = {
+  const shared = {
     fuelBase: options.fuelBase ?? 100,
     climbMul: options.climbMul ?? 1,
+    hpMax: options.hpMax ?? 100,
+    gunBonus: options.gunBonus ?? 0,
+    loadout: options.loadout,
+  };
+  const spec = (index) => {
+    const over = options.loads?.[index];
+    return over ? { ...shared, ...over } : shared;
   };
   const tanks = [
-    makeTank(0, findSpawn(terrain, 80, 250), terrain, names[0], load),
-    makeTank(1, findSpawn(terrain, WORLD_W - 250, WORLD_W - 80), terrain, names[1], load),
+    makeTank(0, findSpawn(terrain, 80, 250), terrain, names[0], spec(0)),
+    makeTank(1, findSpawn(terrain, WORLD_W - 250, WORLD_W - 80), terrain, names[1], spec(1)),
   ];
   const battle = {
     map,
@@ -183,7 +193,7 @@ export function createBattle(map, options = {}) {
     damageScale: options.damageScale ?? 1,
   };
   battle.wind = rollWind(map, rng);
-  if (battle.crate) battle.crate.fuel = Math.max(18, Math.round(load.fuelBase * 0.65));
+  if (battle.crate) battle.crate.fuel = Math.max(18, Math.round((spec(0).fuelBase ?? 100) * 0.65));
   pushLog(battle, map.blurb);
   return battle;
 }
@@ -232,7 +242,7 @@ export function beginTurn(battle) {
     }
   }
   if (!battle.opening) {
-    const leak = (1 - tank.hp / 100) * 4;
+    const leak = (1 - tank.hp / (tank.hpMax || 100)) * 4;
     tank.fuel = Math.max(0, tank.fuel - leak);
     if (battle.map.atmo > 0.01) {
       const span = Math.abs(battle.map.windBase) + battle.map.windJitter;
@@ -257,11 +267,11 @@ export function driveTank(battle, tankIndex, dir, dt) {
   const grade = Math.abs(dydx);
   const gNorm = battle.map.g / 3.71;
   const cut = tank.debuff?.speedCut || 0;
-  const climb = 0.95 * (0.5 + 0.5 * (tank.hp / 100)) * (1.15 - 0.28 * Math.min(gNorm, 1.5)) * (tank.climbMul ?? 1);
+  const climb = 0.95 * (0.5 + 0.5 * (tank.hp / (tank.hpMax || 100))) * (1.15 - 0.28 * Math.min(gNorm, 1.5)) * (tank.climbMul ?? 1);
   if (uphill && grade > climb) {
     return { moved: false, blocked: true, reason: "steep", fuelSpent: 0 };
   }
-  let speed = 96 * engineMul(tank.hp, cut);
+  let speed = 96 * engineMul(tank.hp, cut, tank.hpMax ?? 100);
   if (hazardAt(battle, tank.x, "slow")) speed *= 0.55;
   if (uphill) speed /= 1 + 2.15 * grade * Math.max(0.35, gNorm);
   else speed *= 1 + 0.8 * grade * Math.min(Math.max(gNorm, 0.15), 1.4);
