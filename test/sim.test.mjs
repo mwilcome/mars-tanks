@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { planAiTurn, traceShot } from "../js/ai.js";
+import { careerStats, freshCareer, UPGRADES } from "../js/campaign.js";
 import { fuelCap, maxPower } from "../js/constants.js";
 import { MAPS } from "../js/maps.js";
 import {
@@ -142,6 +143,88 @@ test("explosion hurts and digs", () => {
   explode(battle, 1280, 620, weapon, 0);
   assert.ok(battle.tanks[1].hp < 90);
   assert.ok(battle.terrain[1280] > before);
+});
+
+test("a centered hit outdamages a hull graze, and a near miss still counts", () => {
+  const weapon = getWeapon("he");
+  const ground = 640;
+  const foeX = 1280;
+  const strike = (x) => {
+    const battle = flatBattle();
+    battle.damageScale = 1;
+    explode(battle, x, ground, weapon, 0);
+    return 100 - battle.tanks[1].hp;
+  };
+  const center = strike(foeX);
+  const tracks = strike(foeX + 30);
+  const near = strike(foeX + 36 + 40);
+  const outside = strike(foeX + 36 + weapon.radius + 8);
+  assert.ok(center >= 95, `center ${center}`);
+  assert.ok(tracks >= 55 && tracks < center, `tracks ${tracks} center ${center}`);
+  assert.ok(near >= 15 && near < tracks, `near ${near} tracks ${tracks}`);
+  assert.equal(outside, 0);
+
+  const twice = flatBattle();
+  explode(twice, foeX + 30, ground, weapon, 0);
+  explode(twice, foeX + 30, ground, weapon, 0);
+  assert.ok(twice.tanks[1].hp <= 0, `two track hits left ${twice.tanks[1].hp}`);
+});
+
+test("harder difficulties soak the same blast", () => {
+  const weapon = getWeapon("he");
+  const left = (scale) => {
+    const battle = flatBattle();
+    battle.damageScale = scale;
+    explode(battle, 1280, 640, weapon, 0);
+    return battle.tanks[1].hp;
+  };
+  const easy = left(1);
+  const normal = left(0.62);
+  const hard = left(0.42);
+  assert.ok(easy < normal && normal < hard, `hp easy ${easy} normal ${normal} hard ${hard}`);
+  assert.ok(easy <= 5, `easy center should kill or nearly kill, left ${easy}`);
+  assert.ok(hard > 35, `hard center should survive one shell, left ${hard}`);
+  assert.ok(normal > 15 && normal < 70, `normal center left ${normal}`);
+});
+
+test("baseline fuel cannot cross the field, and max traction can climb", () => {
+  const earlyStats = careerStats(freshCareer());
+  const maxed = freshCareer();
+  maxed.fuel = UPGRADES.fuel.values.length - 1;
+  maxed.climb = UPGRADES.climb.values.length - 1;
+  const lateStats = careerStats(maxed);
+  const early = earlyStats.fuelBase;
+  const late = lateStats.fuelBase;
+  assert.ok(early < late, `${early} ${late}`);
+  assert.ok(early <= 40 && late >= 95);
+  assert.ok(earlyStats.climbMul < lateStats.climbMul);
+  assert.ok(fuelCap(100, early) === early);
+  assert.ok(fuelCap(30, early) < early);
+
+  const battle = createBattle(MAPS[0], { seed: 1, fuelBase: early, climbMul: earlyStats.climbMul });
+  battle.terrain.fill(640);
+  battle.hazards = [];
+  battle.tanks[0].x = 200;
+  battle.tanks[0].lastY = 640;
+  battle.crate.alive = false;
+  let guard = 0;
+  while (battle.tanks[0].fuel > 0.05 && guard < 8000) {
+    driveTank(battle, 0, 1, 0.05);
+    guard += 1;
+  }
+  const traveled = battle.tanks[0].x - 200;
+  assert.ok(traveled > 250 && traveled < 700, `early flat range ${traveled}`);
+
+  const steep = (mul) => {
+    const hill = createBattle(MAPS[0], { seed: 2, fuelBase: 40, climbMul: mul });
+    for (let x = 0; x < hill.terrain.length; x++) hill.terrain[x] = 800 - 0.85 * x;
+    hill.tanks[0].x = 400;
+    hill.tanks[0].lastY = hill.terrain[400];
+    hill.hazards = [];
+    return driveTank(hill, 0, 1, 0.2);
+  };
+  assert.equal(steep(earlyStats.climbMul).blocked, true);
+  assert.equal(steep(lateStats.climbMul).moved, true);
 });
 
 test("special ammo is scarce and HE is not", () => {

@@ -28,27 +28,44 @@ export function airLabel(atmo) {
   return "THICK AIR";
 }
 
-/** Max shot power after hull and ion damage. Full health is 100. */
-export function maxPower(hp, powerCut = 0) {
-  const h = clamp(hp, 0, 100) / 100;
-  return Math.max(28, Math.round(50 + 50 * h - powerCut));
+/** Hull fraction. `hpMax` stays 100 unless campaign armor raised it. Full health is 1. */
+export function hpFraction(hp, hpMax = 100) {
+  const cap = Math.max(1, hpMax);
+  return clamp(hp, 0, cap) / cap;
 }
 
-/** Fuel tank size after leaks from damage. Full health is 100. */
-export function fuelCap(hp) {
-  const h = clamp(hp, 0, 100) / 100;
-  return 100 * (0.45 + 0.55 * h);
+/** Max shot power after hull and ion damage. `gunBonus` is purchased shot power. */
+export function maxPower(hp, powerCut = 0, hpMax = 100, gunBonus = 0) {
+  const h = hpFraction(hp, hpMax);
+  return Math.max(28, Math.round(50 + 50 * h + gunBonus - powerCut));
+}
+
+/** Share of listed weapon damage that actually lands. Both tanks use the same scale. */
+export const DIFFICULTY_DAMAGE = {
+  easy: 1,
+  normal: 0.62,
+  hard: 0.42,
+};
+
+export function damageScaleFor(difficulty) {
+  return DIFFICULTY_DAMAGE[difficulty] ?? DIFFICULTY_DAMAGE.normal;
+}
+
+/** Fuel tank size after leaks from damage. `base` is the full-health tank. */
+export function fuelCap(hp, base = 100, hpMax = 100) {
+  const h = hpFraction(hp, hpMax);
+  return base * (0.45 + 0.55 * h);
 }
 
 /** Fraction of healthy top speed. */
-export function engineMul(hp, speedCut = 0) {
-  const h = clamp(hp, 0, 100) / 100;
+export function engineMul(hp, speedCut = 0, hpMax = 100) {
+  const h = hpFraction(hp, hpMax);
   return (0.38 + 0.62 * h) * (1 - speedCut);
 }
 
 /** Degrees of random error when a damaged gun fires. */
-export function aimWobbleDeg(hp, extra = 0) {
-  const missing = 1 - clamp(hp, 0, 100) / 100;
+export function aimWobbleDeg(hp, extra = 0, hpMax = 100) {
+  const missing = 1 - hpFraction(hp, hpMax);
   return missing * 5.5 + extra;
 }
 

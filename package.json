@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test test/sim.test.mjs test/play.test.mjs test/frame.test.mjs"
+    "test": "node --test test/sim.test.mjs test/play.test.mjs test/frame.test.mjs test/campaign.test.mjs"
   }
 }

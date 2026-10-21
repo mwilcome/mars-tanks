@@ -1,9 +1,10 @@
+import { shopCatalog } from "./campaign.js";
 import { airLabel, gLabel } from "./constants.js";
 import { createAudio } from "./audio.js";
 import { Game, MAPS } from "./game.js";
 import { render } from "./render.js";
 import { aimWobbleFor, maxPowerFor } from "./sim.js";
-import { arsenal } from "./weapons.js";
+import { arsenal, getWeapon } from "./weapons.js";
 
 const audio = createAudio();
 const game = new Game();
@@ -21,13 +22,15 @@ const screens = {
   maps: document.getElementById("screen-maps"),
   pass: document.getElementById("screen-pass"),
   victory: document.getElementById("screen-victory"),
+  shop: document.getElementById("screen-shop"),
 };
 
 const held = { left: false, right: false };
 const keys = new Set();
 let sliding = null;
-let spaceArmedAt = 0;
 let abortArmed = 0;
+let resetArmed = 0;
+let shopSig = "";
 
 const angleSlider = document.getElementById("angle-slider");
 const powerSlider = document.getElementById("power-slider");
@@ -80,12 +83,6 @@ bindRepeat(document.getElementById("btn-angle-up"), () => game.nudgeAim(1));
 bindRepeat(document.getElementById("btn-power-down"), () => game.nudgePower(-1));
 bindRepeat(document.getElementById("btn-power-up"), () => game.nudgePower(1));
 
-document.getElementById("btn-aim").addEventListener("click", () => {
-  audio.unlock();
-  if (game.battle?.phase === "aim") game.pressDrive();
-  else game.pressAim();
-});
-
 document.getElementById("btn-fire").addEventListener("click", () => {
   audio.unlock();
   game.pressFire();
@@ -94,6 +91,35 @@ document.getElementById("btn-fire").addEventListener("click", () => {
 document.getElementById("btn-campaign").addEventListener("click", () => {
   audio.unlock();
   game.startCampaign();
+});
+document.getElementById("btn-depot").addEventListener("click", () => {
+  audio.unlock();
+  game.openDepot();
+});
+document.getElementById("btn-new-campaign").addEventListener("click", () => {
+  const button = document.getElementById("btn-new-campaign");
+  const now = performance.now();
+  if (button.dataset.armed === "1" && now - resetArmed < 2200) {
+    button.dataset.armed = "0";
+    button.textContent = "NEW CAMPAIGN";
+    audio.unlock();
+    game.resetCampaign();
+    return;
+  }
+  button.dataset.armed = "1";
+  button.textContent = "SURE?";
+  resetArmed = now;
+});
+document.getElementById("btn-shop-next").addEventListener("click", () => {
+  audio.unlock();
+  game.continueFromShop();
+});
+document.getElementById("btn-shop-title").addEventListener("click", () => game.enterTitle());
+document.getElementById("shop-list").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-buy]");
+  if (!button) return;
+  audio.unlock();
+  game.purchase(button.dataset.buy, button.dataset.id);
 });
 document.getElementById("btn-skirmish").addEventListener("click", () => {
   audio.unlock();
@@ -144,6 +170,7 @@ document.getElementById("btn-abort").addEventListener("click", () => {
 document.getElementById("diff").addEventListener("click", (event) => {
   const level = event.target?.dataset?.diff;
   if (!level) return;
+  document.getElementById("btn-new-campaign").dataset.armed = "0";
   game.setDifficulty(level);
   syncChrome();
 });
@@ -204,20 +231,9 @@ window.addEventListener("keydown", (event) => {
   if (event.repeat && (event.code === "Space" || event.code === "Enter" || event.code === "KeyF")) return;
   keys.add(event.code);
   audio.unlock();
-  if (event.code === "Space") {
-    const phase = game.battle?.phase;
-    if (game.mode === "pass") game.acknowledgePass();
-    else if (phase === "move") {
-      game.pressAim();
-      spaceArmedAt = performance.now();
-    } else if (phase === "aim" && performance.now() - spaceArmedAt > 250) {
-      game.pressFire();
-    }
-  } else if (event.code === "Enter" || event.code === "KeyF") {
+  if (event.code === "Space" || event.code === "Enter" || event.code === "KeyF") {
     if (game.mode === "pass") game.acknowledgePass();
     else game.pressFire();
-  } else if (event.code === "Escape" && game.battle?.phase === "aim") {
-    game.pressDrive();
   } else if (event.code === "KeyM") {
     audio.toggle();
   } else if (event.code.startsWith("Digit")) {
@@ -246,9 +262,10 @@ document.getElementById("board").addEventListener("touchmove", (event) => {
 
 function readout(tank, enemy) {
   const info = game.tankReadout(tank);
-  const low = info.hp <= 35;
+  const low = info.hp / Math.max(1, info.hpMax) <= 0.35;
+  const hpWidth = Math.min(100, (info.hp / Math.max(1, info.hpMax)) * 100);
   return `<div class="name ${enemy ? "" : "on"}"><span><i class="swatch"></i>${tank.name}</span><span>${tank.alive ? "" : "DOWN"}</span></div>
-    <div class="bar hp ${low ? "low" : ""}"><span style="width:${info.hp}%"></span></div>
+    <div class="bar hp ${low ? "low" : ""}"><span style="width:${hpWidth}%"></span></div>
     <div class="stat"><span>HP ${info.hp}</span><span>SPD ${info.speed}%</span></div>
     <div class="bar fuel"><span style="width:${Math.min(100, (info.fuel / Math.max(1, info.fuelCap)) * 100)}%"></span></div>
     <div class="stat"><span>FUEL ${info.fuel}</span><span>RANGE ${info.range}%</span></div>`;
@@ -261,6 +278,7 @@ function syncChrome() {
   screens.maps.hidden = mode !== "maps";
   screens.pass.hidden = mode !== "pass";
   screens.victory.hidden = mode !== "victory";
+  screens.shop.hidden = mode !== "shop";
   const inMatch = mode === "battle" || mode === "victory" || mode === "pass";
   hud.hidden = !inMatch;
   controls.hidden = mode !== "battle";
@@ -272,6 +290,15 @@ function syncChrome() {
   if (game.campaignIndex >= MAPS.length) campBtn.textContent = "REPLAY TOUR";
   else if (game.campaignIndex > 0) campBtn.textContent = `CONTINUE · ${game.campaignIndex + 1}/${MAPS.length}`;
   else campBtn.textContent = "CAMPAIGN";
+  const depotBtn = document.getElementById("btn-depot");
+  const resetBtn = document.getElementById("btn-new-campaign");
+  const showCareer = mode === "title" && game.showDepotOnTitle();
+  depotBtn.hidden = !showCareer;
+  resetBtn.hidden = !showCareer;
+  if (!showCareer || resetBtn.dataset.armed !== "1") {
+    resetBtn.dataset.armed = "0";
+    resetBtn.textContent = "NEW CAMPAIGN";
+  }
 
   for (const button of document.querySelectorAll("#diff button")) {
     button.setAttribute("aria-pressed", button.dataset.diff === game.difficulty ? "true" : "false");
@@ -294,6 +321,8 @@ function syncChrome() {
     warn.hidden = false;
     warn.textContent = "Open this through a local server. Modules do not run from a file:// page.";
   }
+
+  renderShop();
 
   const battle = game.battle;
   if (!battle || !inMatch) return;
@@ -357,20 +386,23 @@ function syncChrome() {
   powerSlider.max = String(cap);
   if (sliding !== "power") powerSlider.value = String(Math.round(Math.min(actor.power, cap)));
 
-  const aiming = phase === "aim";
-  document.getElementById("btn-aim").textContent = aiming ? "DRIVE" : "AIM";
-  document.getElementById("btn-aim").disabled = !human || phase === "fly" || phase === "settle";
-  document.getElementById("btn-fire").disabled = !human || !aiming;
-  document.getElementById("btn-left").disabled = !human || phase !== "move";
-  document.getElementById("btn-right").disabled = !human || phase !== "move";
-  const locked = !human || phase === "fly" || phase === "settle";
+  const locked = !human || phase === "fly" || phase === "settle" || phase === "over";
+  document.getElementById("btn-fire").disabled = locked;
+  document.getElementById("btn-left").disabled = locked;
+  document.getElementById("btn-right").disabled = locked;
   for (const id of ["btn-angle-down", "btn-angle-up", "btn-power-down", "btn-power-up"]) {
     document.getElementById(id).disabled = locked;
   }
   angleSlider.disabled = locked;
   powerSlider.disabled = locked;
 
-  const lamp = phase === "fly" ? "IN FLIGHT" : phase === "aim" ? "AIM" : phase === "settle" ? "IMPACT" : "DRIVE";
+  let lamp = phase === "fly" ? "IN FLIGHT" : phase === "settle" ? "IMPACT" : "READY";
+  if (!game.ai && (game.devLevel > 0 || game.debugUpgrades)) {
+    const tags = [];
+    if (game.devLevel > 0) tags.push(`L${game.devLevel}`);
+    if (game.debugUpgrades) tags.push("FULL");
+    lamp = `${lamp} · ${tags.join(" ")}`;
+  }
   document.getElementById("phase-lamp").textContent = game.ai ? "ENEMY" : lamp;
   const wobble = aimWobbleFor(actor);
   const wobbleText = wobble > 0.8 ? ` ±${wobble.toFixed(1)}°` : "";
@@ -379,36 +411,133 @@ function syncChrome() {
   for (const button of weaponsEl.children) {
     const id = button.dataset.id;
     const count = actor.loadout[id];
+    const owned = count === Infinity || Number.isFinite(count);
     const label = count === Infinity ? "∞" : count;
     const weapon = arsenal().find((item) => item.id === id);
-    button.textContent = `${weapon.name} ${label}`;
+    button.hidden = !owned;
+    button.textContent = `${weapon.name} ${owned ? label : ""}`;
     button.classList.toggle("on", actor.weaponId === id);
-    button.disabled = locked || (count !== Infinity && count <= 0);
+    button.disabled = locked || !owned || (count !== Infinity && count <= 0);
   }
 
   ticker.textContent = battle.log.slice(0, 3).join("  ·  ");
+}
+
+function upgradeText(id, value) {
+  if (id === "climb") return `${Math.round(value * 100)}%`;
+  if (id === "gun") return `+${value}`;
+  return String(value);
+}
+
+function renderShop() {
+  if (game.mode !== "shop") {
+    shopSig = "";
+    return;
+  }
+  const career = game.career;
+  const catalog = shopCatalog(career);
+  const purse = game.lastPurse;
+  const sig = JSON.stringify({ catalog, purse, note: game.shopNote });
+  const title = document.getElementById("shop-title");
+  const cleared = career.index > 0 ? MAPS[Math.min(MAPS.length, career.index) - 1] : null;
+  title.textContent = career.index >= MAPS.length
+    ? "TOUR COMPLETE"
+    : purse && cleared
+      ? cleared.name.toUpperCase()
+      : "SUPPLY DEPOT";
+  document.getElementById("shop-credits").textContent = `${catalog.credits} cr`;
+  const purseLine = document.getElementById("shop-purse");
+  if (purse) {
+    const scale = purse.mult === 1 ? "" : ` · ×${purse.mult}`;
+    purseLine.textContent = `PAID ${purse.total} · WIN ${purse.win} · DAMAGE ${purse.damage} · AIM ${purse.accuracy} · KILL ${purse.kill}${scale}`;
+  } else {
+    purseLine.textContent = "Credits and shells carry to the next world. HE stays free.";
+  }
+  document.getElementById("shop-note").textContent = game.shopNote || "";
+  document.getElementById("btn-shop-next").textContent = career.index >= MAPS.length ? "TOUR COMPLETE" : "NEXT WORLD";
+  if (sig === shopSig) return;
+  shopSig = sig;
+  const list = document.getElementById("shop-list");
+  list.replaceChildren();
+  for (const row of catalog.upgrades) {
+    const item = document.createElement("div");
+    item.className = "shop-row";
+    const copy = document.createElement("div");
+    copy.className = "shop-copy";
+    const name = document.createElement("strong");
+    name.textContent = row.name;
+    const detail = document.createElement("span");
+    detail.textContent = row.maxed
+      ? `${upgradeText(row.id, row.value)} · ${row.blurb}`
+      : `${upgradeText(row.id, row.value)} → ${upgradeText(row.id, row.next)} · ${row.blurb}`;
+    copy.append(name, detail);
+    const actions = document.createElement("div");
+    actions.className = "shop-actions";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.buy = "upgrade";
+    button.dataset.id = row.id;
+    button.textContent = row.maxed ? "MAX" : `${row.cost} cr`;
+    button.disabled = row.maxed;
+    actions.append(button);
+    item.append(copy, actions);
+    list.append(item);
+  }
+  for (const row of catalog.weapons) {
+    const weapon = getWeapon(row.id);
+    const item = document.createElement("div");
+    item.className = "shop-row";
+    const copy = document.createElement("div");
+    copy.className = "shop-copy";
+    const name = document.createElement("strong");
+    name.textContent = weapon.name;
+    const detail = document.createElement("span");
+    if (row.owned) detail.textContent = `${row.ammo} in the magazine · ${weapon.blurb}`;
+    else if (row.locked) detail.textContent = `Unlocks after map ${row.after} · ${weapon.blurb}`;
+    else detail.textContent = `Includes ${row.pack} · ${weapon.blurb}`;
+    copy.append(name, detail);
+    const actions = document.createElement("div");
+    actions.className = "shop-actions";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.id = row.id;
+    if (row.owned) {
+      button.dataset.buy = "ammo";
+      button.textContent = `+${row.pack} · ${row.packCost} cr`;
+    } else if (row.locked) {
+      button.dataset.buy = "weapon";
+      button.textContent = `AFTER MAP ${row.after}`;
+      button.disabled = true;
+    } else {
+      button.dataset.buy = "weapon";
+      button.textContent = `UNLOCK ${row.unlock}`;
+    }
+    actions.append(button);
+    item.append(copy, actions);
+    list.append(item);
+  }
 }
 
 function sampleInput(dt) {
   const battle = game.battle;
   const human = game.humanReady();
   if (!human || !battle) return { left: false, right: false };
-  const aiming = battle.phase === "aim";
-  if (aiming) {
-    if (keys.has("ArrowLeft") || keys.has("KeyA")) game.nudgeAim(-90 * dt);
-    if (keys.has("ArrowRight") || keys.has("KeyD")) game.nudgeAim(90 * dt);
-  }
+  if (keys.has("ArrowLeft")) game.nudgeAim(-90 * dt);
+  if (keys.has("ArrowRight")) game.nudgeAim(90 * dt);
   if (keys.has("ArrowUp") || keys.has("KeyW")) game.nudgePower(55 * dt);
   if (keys.has("ArrowDown") || keys.has("KeyS")) game.nudgePower(-55 * dt);
-  if (aiming || battle.phase !== "move") return { left: false, right: false };
+  if (battle.phase !== "move" && battle.phase !== "aim") return { left: false, right: false };
   return {
-    left: held.left || keys.has("ArrowLeft") || keys.has("KeyA"),
-    right: held.right || keys.has("ArrowRight") || keys.has("KeyD"),
+    left: held.left || keys.has("KeyA"),
+    right: held.right || keys.has("KeyD"),
   };
 }
 
 const params = new URLSearchParams(location.search);
-if (params.get("map")) {
+const debugUpgrades = params.get("debug") === "1" || params.get("upgrades") === "1";
+const launched = game.applyDebugLaunch({ level: params.get("level"), upgrades: debugUpgrades });
+if (!launched && params.get("map")) {
+  game.debugUpgrades = debugUpgrades;
   game.startMatch(params.get("map"), { versus: params.get("vs") === "p2" ? "p2" : "cpu" });
 }
 
