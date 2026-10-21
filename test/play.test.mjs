@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { traceShot } from "../js/ai.js";
+import { campaignFuelBase } from "../js/constants.js";
 import { Game } from "../js/game.js";
 import { MAPS } from "../js/maps.js";
 
@@ -27,8 +28,8 @@ test("a match can be driven, aimed, and fired without throwing", () => {
   }
   battle.tanks[0].aim = best.aim;
   battle.tanks[0].power = best.power;
-  game.pressAim();
-  assert.equal(battle.phase, "aim");
+  assert.equal(battle.phase, "move");
+  game.nudgeAim(1);
   game.pressFire();
   assert.equal(battle.phase, "fly");
 
@@ -39,4 +40,25 @@ test("a match can be driven, aimed, and fired without throwing", () => {
   }
   assert.ok(battle.impacts.length > 0 || battle.log.some((line) => /SHORT|OVER|hit|horizon|Fuse/i.test(line)));
   assert.ok(guard < 800);
+});
+
+test("level and debug links jump a campaign with the matching tank", () => {
+  const jumped = new Game();
+  assert.equal(jumped.applyDebugLaunch({ level: "6", upgrades: false }), true);
+  assert.equal(jumped.battle.map.id, MAPS[5].id);
+  assert.equal(jumped.match.kind, "campaign");
+  assert.equal(jumped.battle.tanks[0].fuelBase, campaignFuelBase(5, MAPS.length));
+  assert.equal(jumped.battle.phase, "move");
+  jumped.pressFire();
+  assert.equal(jumped.battle.phase, "fly");
+
+  const filled = new Game();
+  assert.equal(filled.applyDebugLaunch({ level: 1, upgrades: true }), true);
+  assert.equal(filled.battle.map.id, MAPS[0].id);
+  assert.equal(filled.battle.tanks[0].fuelBase, 100);
+  assert.ok(filled.battle.tanks[0].climbMul > 0.99);
+
+  const ignored = new Game();
+  assert.equal(ignored.applyDebugLaunch({ level: "nope" }), false);
+  assert.equal(ignored.mode, "title");
 });

@@ -39,7 +39,40 @@ export function maxPowerFor(tank) {
 }
 
 export function fuelCapFor(tank) {
-  return fuelCap(tank.hp);
+  return fuelCap(tank.hp, tank.fuelBase ?? 100);
+}
+
+/** Tracks and hull, in world pixels. Origin is the ground under the tank. */
+export const HULL_HALF_W = 36;
+export const HULL_HEIGHT = 40;
+
+/** Distance from a blast to the hull. 0 means the blast is on the tank. */
+export function hullClearance(tankX, groundY, x, y) {
+  const cx = clamp(x, tankX - HULL_HALF_W, tankX + HULL_HALF_W);
+  const cy = clamp(y, groundY - HULL_HEIGHT, groundY);
+  return Math.hypot(x - cx, y - cy);
+}
+
+const BLAST_FALLOFF = 1.45;
+
+/**
+ * Damage from one blast. Distance is measured from the hull surface, so a
+ * shell sitting on the tank is a full hit. Falloff is gentler than a square
+ * so a near miss inside the radius still counts.
+ */
+export function blastDamage(weapon, tankX, groundY, x, y, scale = 1) {
+  const clearance = hullClearance(tankX, groundY, x, y);
+  if (!(weapon.radius > 0) || clearance > weapon.radius) {
+    return { damage: 0, direct: false, clearance };
+  }
+  const falloff = (1 - clearance / weapon.radius) ** BLAST_FALLOFF;
+  const onHull = clearance <= 0.75;
+  const centered = onHull && Math.abs(x - tankX) <= 18;
+  let damage = weapon.damage * falloff;
+  if (centered) damage *= weapon.direct || 1;
+  damage *= scale;
+  if (damage < 1) damage = 0;
+  return { damage, direct: onHull, centered, clearance };
 }
 
 export function aimWobbleFor(tank) {
@@ -72,13 +105,16 @@ function findSpawn(terrain, a, b) {
   return best;
 }
 
-function makeTank(side, x, terrain, name) {
+function makeTank(side, x, terrain, name, load = {}) {
+  const fuelBase = load.fuelBase ?? 100;
   return {
     side,
     name,
     x,
     hp: 100,
-    fuel: 100,
+    fuel: fuelBase,
+    fuelBase,
+    climbMul: load.climbMul ?? 1,
     aim: side === 0 ? 62 : 118,
     power: 45,
     weaponId: "he",
@@ -115,9 +151,13 @@ export function createBattle(map, options = {}) {
   const terrain = options.terrain ? Float32Array.from(options.terrain) : generateTerrain(map);
   const hazards = options.hazards || generateHazards(map, terrain);
   const names = options.names || ["LANCER", "DRIFT"];
+  const load = {
+    fuelBase: options.fuelBase ?? 100,
+    climbMul: options.climbMul ?? 1,
+  };
   const tanks = [
-    makeTank(0, findSpawn(terrain, 80, 250), terrain, names[0]),
-    makeTank(1, findSpawn(terrain, WORLD_W - 250, WORLD_W - 80), terrain, names[1]),
+    makeTank(0, findSpawn(terrain, 80, 250), terrain, names[0], load),
+    makeTank(1, findSpawn(terrain, WORLD_W - 250, WORLD_W - 80), terrain, names[1], load),
   ];
   const battle = {
     map,
@@ -140,8 +180,10 @@ export function createBattle(map, options = {}) {
     opening: true,
     terrainDirty: true,
     popups: [],
+    damageScale: options.damageScale ?? 1,
   };
   battle.wind = rollWind(map, rng);
+  if (battle.crate) battle.crate.fuel = Math.max(18, Math.round(load.fuelBase * 0.65));
   pushLog(battle, map.blurb);
   return battle;
 }
@@ -215,7 +257,7 @@ export function driveTank(battle, tankIndex, dir, dt) {
   const grade = Math.abs(dydx);
   const gNorm = battle.map.g / 3.71;
   const cut = tank.debuff?.speedCut || 0;
-  const climb = 0.95 * (0.5 + 0.5 * (tank.hp / 100)) * (1.15 - 0.28 * Math.min(gNorm, 1.5));
+  const climb = 0.95 * (0.5 + 0.5 * (tank.hp / 100)) * (1.15 - 0.28 * Math.min(gNorm, 1.5)) * (tank.climbMul ?? 1);
   if (uphill && grade > climb) {
     return { moved: false, blocked: true, reason: "steep", fuelSpent: 0 };
   }
@@ -232,7 +274,7 @@ export function driveTank(battle, tankIndex, dir, dt) {
   }
   let costRate = 6.4;
   if (uphill) costRate *= 1 + 2.3 * grade * Math.max(0.4, gNorm);
-  else costRate *= 0.45;
+  else if (grade > 0.04) costRate *= 0.45;
   if (hazardAt(battle, tank.x, "slow")) costRate *= 1.7;
   const cost = Math.min(tank.fuel, costRate * dt);
   tank.fuel -= cost;
@@ -337,22 +379,20 @@ export function explode(battle, x, y, weapon, owner) {
   }
   battle.terrainDirty = true;
   const damaged = [];
+  const scale = battle.damageScale ?? 1;
   for (let i = 0; i < battle.tanks.length; i++) {
     const tank = battle.tanks[i];
     if (!tank.alive) continue;
-    const hy = tank.lastY - 16;
-    const dist = Math.hypot(tank.x - x, hy - y);
-    if (dist > weapon.radius) continue;
-    const t = 1 - dist / weapon.radius;
-    let dmg = weapon.damage * t * t;
-    const direct = dist < 18;
-    if (direct) dmg *= weapon.direct;
-    if (dmg < 0.8) continue;
-    const dealt = hurt(battle, tank, dmg, "blast");
-    if (weapon.emp && dist < weapon.radius) {
+    const groundY = tank.lastY;
+    const hit = blastDamage(weapon, tank.x, groundY, x, y, scale);
+    if (hit.clearance > weapon.radius) continue;
+    if (weapon.emp) {
       tank.debuff = { powerCut: weapon.emp.powerCut, speedCut: weapon.emp.speedCut, turnsLeft: weapon.emp.turns, fresh: true };
       spendClamp(tank);
     }
+    if (hit.damage <= 0) continue;
+    const direct = hit.direct;
+    const dealt = hurt(battle, tank, hit.damage, "blast");
     damaged.push({ index: i, amount: dealt, direct });
     if (i !== owner && dealt > 0) {
       const shooter = battle.tanks[owner];
@@ -526,8 +566,8 @@ export function stepProjectiles(battle, dt) {
       for (let i = 0; i < battle.tanks.length; i++) {
         const tank = battle.tanks[i];
         if (!tank.alive) continue;
-        const hy = terrainY(battle.terrain, tank.x) - 16;
-        if (Math.hypot(x - tank.x, y - hy) < 20) {
+        const groundY = terrainY(battle.terrain, tank.x);
+        if (hullClearance(tank.x, groundY, x, y) <= 0) {
           hit = { kind: "tank", x, y, index: i };
           break;
         }

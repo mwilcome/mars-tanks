@@ -37,6 +37,7 @@ function cloneBattle(battle, fromX, me) {
     rng: battle.rng,
     opening: false,
     terrainDirty: false,
+    damageScale: battle.damageScale ?? 1,
   };
 }
 

@@ -1,5 +1,5 @@
 import { planAiTurn } from "./ai.js";
-import { clamp, gravityPx, maxPower } from "./constants.js";
+import { campaignClimbMul, campaignFuelBase, clamp, damageScaleFor, gravityPx, maxPower } from "./constants.js";
 import { MAPS, mapById } from "./maps.js";
 import {
   applyEnvironment,
@@ -56,6 +56,8 @@ export class Game {
     this.reduced = false;
     this.selectedMapId = "tranquility";
     this.attract = false;
+    this.debugUpgrades = false;
+    this.devLevel = 0;
     this.enterTitle();
   }
 
@@ -101,7 +103,7 @@ export class Game {
     else this.mode = "title";
   }
 
-  startMatch(mapId, { versus, campaign, seed } = {}) {
+  startMatch(mapId, { versus, campaign, seed, levelIndex } = {}) {
     const map = mapById(mapId);
     const names = versus === "p2" ? ["PILOT 1", "PILOT 2"] : ["LANCER", "DRIFT"];
     this.match = {
@@ -111,7 +113,20 @@ export class Game {
       names,
       seed: seed ?? ((Math.random() * 1e9) >>> 0),
     };
-    this.battle = createBattle(map, { seed: this.match.seed, names });
+    const level = campaign ? (levelIndex ?? this.campaignIndex) : null;
+    let fuelBase = level == null ? 100 : campaignFuelBase(level, MAPS.length);
+    let climbMul = level == null ? 1 : campaignClimbMul(level, MAPS.length);
+    if (this.debugUpgrades) {
+      fuelBase = campaignFuelBase(MAPS.length - 1, MAPS.length);
+      climbMul = campaignClimbMul(MAPS.length - 1, MAPS.length);
+    }
+    this.battle = createBattle(map, {
+      seed: this.match.seed,
+      names,
+      fuelBase,
+      climbMul,
+      damageScale: damageScaleFor(this.difficulty),
+    });
     this.attract = false;
     this.fx = [];
     this.shake = 0;
@@ -120,8 +135,27 @@ export class Game {
     this.mode = "battle";
     beginTurn(this.battle);
     this.battle.phase = "move";
-    this.setBanner(`${this.battle.tanks[0].name} — DRIVE`, 1.7);
+    this.setBanner(this.turnBanner(this.battle.tanks[0]), 1.7);
     this.sfxQueue.push("blip");
+  }
+
+  /** Hidden phone testing: `?level=N` (1-based) and/or `?debug=1` for a full tank. */
+  applyDebugLaunch({ level, upgrades } = {}) {
+    this.debugUpgrades = !!upgrades;
+    if (level == null || level === "") return false;
+    const n = Number(level);
+    if (!Number.isInteger(n) || n < 1) return false;
+    this.devLevel = Math.min(MAPS.length, n);
+    this.campaignIndex = this.devLevel - 1;
+    this.startCampaign();
+    return true;
+  }
+
+  turnBanner(tank) {
+    const bits = [`${tank.name}'S TURN`];
+    if (this.devLevel > 0) bits.push(`L${this.devLevel}`);
+    if (this.debugUpgrades) bits.push("FULL TANKS");
+    return bits.join(" · ");
   }
 
   startCampaign() {
@@ -143,24 +177,10 @@ export class Game {
     return this.mode === "battle" && this.battle && !this.ai && this.isHumanTurn();
   }
 
-  pressAim() {
-    const battle = this.battle;
-    if (!this.humanReady() || battle.phase !== "move") return;
-    battle.phase = "aim";
-    this.setBanner("AIM — TRUST THE NUMBERS", 1.3);
-    this.sfxQueue.push("blip");
-  }
-
-  pressDrive() {
-    const battle = this.battle;
-    if (!this.humanReady() || battle.phase !== "aim") return;
-    battle.phase = "move";
-    this.setBanner("DRIVE", 0.8);
-    this.sfxQueue.push("blip");
-  }
-
   pressFire() {
-    if (!this.humanReady() || this.battle.phase !== "aim") return;
+    if (!this.humanReady()) return;
+    const phase = this.battle.phase;
+    if (phase !== "move" && phase !== "aim") return;
     this.fireCurrent();
   }
 
@@ -362,14 +382,14 @@ export class Game {
     if (this.battle.turn === 1) this.beginAi();
     else {
       this.ai = null;
-      this.setBanner(`${this.battle.tanks[0].name} — DRIVE`, 1.3);
+      this.setBanner(this.turnBanner(this.battle.tanks[0]), 1.3);
     }
   }
 
   acknowledgePass() {
     if (this.mode !== "pass") return;
     this.mode = "battle";
-    this.setBanner(`${this.battle.tanks[this.battle.turn].name} — DRIVE`, 1.2);
+    this.setBanner(this.turnBanner(this.battle.tanks[this.battle.turn]), 1.2);
     this.sfxQueue.push("blip");
   }
 

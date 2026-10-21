@@ -34,10 +34,41 @@ export function maxPower(hp, powerCut = 0) {
   return Math.max(28, Math.round(50 + 50 * h - powerCut));
 }
 
-/** Fuel tank size after leaks from damage. Full health is 100. */
-export function fuelCap(hp) {
+/** Share of listed weapon damage that actually lands. Both tanks use the same scale. */
+export const DIFFICULTY_DAMAGE = {
+  easy: 1,
+  normal: 0.62,
+  hard: 0.42,
+};
+
+export function damageScaleFor(difficulty) {
+  return DIFFICULTY_DAMAGE[difficulty] ?? DIFFICULTY_DAMAGE.normal;
+}
+
+/**
+ * Campaign fuel tank at full health. Map 1 is a short reposition;
+ * the last map is a full 100, same as skirmish.
+ */
+export function campaignFuelBase(levelIndex, mapCount = 30) {
+  const last = Math.max(1, mapCount - 1);
+  const t = clamp(levelIndex, 0, last) / last;
+  return Math.round(34 + t * 66);
+}
+
+/**
+ * Hill-climbing authority. Map 1 is 0.72× today's full-health limit.
+ * The last map is 1, which is the limit skirmish already uses.
+ */
+export function campaignClimbMul(levelIndex, mapCount = 30) {
+  const last = Math.max(1, mapCount - 1);
+  const t = clamp(levelIndex, 0, last) / last;
+  return 0.72 + 0.28 * t;
+}
+
+/** Fuel tank size after leaks from damage. `base` is the full-health tank. */
+export function fuelCap(hp, base = 100) {
   const h = clamp(hp, 0, 100) / 100;
-  return 100 * (0.45 + 0.55 * h);
+  return base * (0.45 + 0.55 * h);
 }
 
 /** Fraction of healthy top speed. */

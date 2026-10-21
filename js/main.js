@@ -26,7 +26,6 @@ const screens = {
 const held = { left: false, right: false };
 const keys = new Set();
 let sliding = null;
-let spaceArmedAt = 0;
 let abortArmed = 0;
 
 const angleSlider = document.getElementById("angle-slider");
@@ -79,12 +78,6 @@ bindRepeat(document.getElementById("btn-angle-down"), () => game.nudgeAim(-1));
 bindRepeat(document.getElementById("btn-angle-up"), () => game.nudgeAim(1));
 bindRepeat(document.getElementById("btn-power-down"), () => game.nudgePower(-1));
 bindRepeat(document.getElementById("btn-power-up"), () => game.nudgePower(1));
-
-document.getElementById("btn-aim").addEventListener("click", () => {
-  audio.unlock();
-  if (game.battle?.phase === "aim") game.pressDrive();
-  else game.pressAim();
-});
 
 document.getElementById("btn-fire").addEventListener("click", () => {
   audio.unlock();
@@ -204,20 +197,9 @@ window.addEventListener("keydown", (event) => {
   if (event.repeat && (event.code === "Space" || event.code === "Enter" || event.code === "KeyF")) return;
   keys.add(event.code);
   audio.unlock();
-  if (event.code === "Space") {
-    const phase = game.battle?.phase;
-    if (game.mode === "pass") game.acknowledgePass();
-    else if (phase === "move") {
-      game.pressAim();
-      spaceArmedAt = performance.now();
-    } else if (phase === "aim" && performance.now() - spaceArmedAt > 250) {
-      game.pressFire();
-    }
-  } else if (event.code === "Enter" || event.code === "KeyF") {
+  if (event.code === "Space" || event.code === "Enter" || event.code === "KeyF") {
     if (game.mode === "pass") game.acknowledgePass();
     else game.pressFire();
-  } else if (event.code === "Escape" && game.battle?.phase === "aim") {
-    game.pressDrive();
   } else if (event.code === "KeyM") {
     audio.toggle();
   } else if (event.code.startsWith("Digit")) {
@@ -357,20 +339,23 @@ function syncChrome() {
   powerSlider.max = String(cap);
   if (sliding !== "power") powerSlider.value = String(Math.round(Math.min(actor.power, cap)));
 
-  const aiming = phase === "aim";
-  document.getElementById("btn-aim").textContent = aiming ? "DRIVE" : "AIM";
-  document.getElementById("btn-aim").disabled = !human || phase === "fly" || phase === "settle";
-  document.getElementById("btn-fire").disabled = !human || !aiming;
-  document.getElementById("btn-left").disabled = !human || phase !== "move";
-  document.getElementById("btn-right").disabled = !human || phase !== "move";
-  const locked = !human || phase === "fly" || phase === "settle";
+  const locked = !human || phase === "fly" || phase === "settle" || phase === "over";
+  document.getElementById("btn-fire").disabled = locked;
+  document.getElementById("btn-left").disabled = locked;
+  document.getElementById("btn-right").disabled = locked;
   for (const id of ["btn-angle-down", "btn-angle-up", "btn-power-down", "btn-power-up"]) {
     document.getElementById(id).disabled = locked;
   }
   angleSlider.disabled = locked;
   powerSlider.disabled = locked;
 
-  const lamp = phase === "fly" ? "IN FLIGHT" : phase === "aim" ? "AIM" : phase === "settle" ? "IMPACT" : "DRIVE";
+  let lamp = phase === "fly" ? "IN FLIGHT" : phase === "settle" ? "IMPACT" : "READY";
+  if (!game.ai && (game.devLevel > 0 || game.debugUpgrades)) {
+    const tags = [];
+    if (game.devLevel > 0) tags.push(`L${game.devLevel}`);
+    if (game.debugUpgrades) tags.push("FULL");
+    lamp = `${lamp} · ${tags.join(" ")}`;
+  }
   document.getElementById("phase-lamp").textContent = game.ai ? "ENEMY" : lamp;
   const wobble = aimWobbleFor(actor);
   const wobbleText = wobble > 0.8 ? ` ±${wobble.toFixed(1)}°` : "";
@@ -393,22 +378,22 @@ function sampleInput(dt) {
   const battle = game.battle;
   const human = game.humanReady();
   if (!human || !battle) return { left: false, right: false };
-  const aiming = battle.phase === "aim";
-  if (aiming) {
-    if (keys.has("ArrowLeft") || keys.has("KeyA")) game.nudgeAim(-90 * dt);
-    if (keys.has("ArrowRight") || keys.has("KeyD")) game.nudgeAim(90 * dt);
-  }
+  if (keys.has("ArrowLeft")) game.nudgeAim(-90 * dt);
+  if (keys.has("ArrowRight")) game.nudgeAim(90 * dt);
   if (keys.has("ArrowUp") || keys.has("KeyW")) game.nudgePower(55 * dt);
   if (keys.has("ArrowDown") || keys.has("KeyS")) game.nudgePower(-55 * dt);
-  if (aiming || battle.phase !== "move") return { left: false, right: false };
+  if (battle.phase !== "move" && battle.phase !== "aim") return { left: false, right: false };
   return {
-    left: held.left || keys.has("ArrowLeft") || keys.has("KeyA"),
-    right: held.right || keys.has("ArrowRight") || keys.has("KeyD"),
+    left: held.left || keys.has("KeyA"),
+    right: held.right || keys.has("KeyD"),
   };
 }
 
 const params = new URLSearchParams(location.search);
-if (params.get("map")) {
+const debugUpgrades = params.get("debug") === "1" || params.get("upgrades") === "1";
+const launched = game.applyDebugLaunch({ level: params.get("level"), upgrades: debugUpgrades });
+if (!launched && params.get("map")) {
+  game.debugUpgrades = debugUpgrades;
   game.startMatch(params.get("map"), { versus: params.get("vs") === "p2" ? "p2" : "cpu" });
 }
 

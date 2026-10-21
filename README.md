@@ -20,13 +20,15 @@ Phones need landscape. A portrait window is asked to rotate. Every command is an
 
 | Action | Keyboard | Screen |
 | --- | --- | --- |
-| Drive | A / D or arrows | Hold ◀ ▶ |
-| Lock the hull and aim | Space | AIM |
-| Angle | Left / right while aiming | − / + or the slider |
+| Drive | A / D | Hold ◀ ▶ |
+| Angle | Left / right | − / + or the slider |
 | Power | Up / down | − / + or the slider |
-| Fire | Space again, Enter, or F | FIRE |
-| Back to driving | Esc | DRIVE |
+| Fire | Space, Enter, or F | FIRE |
 | Weapon | 1–8 | Weapon chips |
+
+Drive, aim, and fire are all available on your turn. There is no separate aim lock.
+
+Campaign maps start with a short fuel tank and a lower hill limit. Both rise as you clear worlds. Skirmish issues a full tank. A fuel cache on the map refills about two thirds of that tank.
 
 Angle `0` is flat to the right, `90` is straight up, `180` is flat to the left. The barrel points there. It does not draw the arc.
 
@@ -41,6 +43,8 @@ The site is static. No build step.
 On Netlify, set the publish directory to the repository root and leave the build command empty. `netlify.toml` already says that. Connecting this GitHub repo, or dragging the folder onto Netlify, is enough.
 
 A link can open a world directly: `/?map=titan&vs=cpu` or `/?map=europa&vs=p2`.
+
+Hidden test links, not shown in the menus: `/?level=5` starts campaign map 5 (1-based) with that map's fuel and climb. `/?debug=1` gives the last-map fuel tank and hill limit on the next battle. Combine them: `/?level=1&debug=1`. Winning a `level` link advances the saved campaign.
 
 ## Tests
 
