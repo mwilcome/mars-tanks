@@ -4,6 +4,7 @@
   "description": "Widescreen artillery across the solar system.",
   "start_url": "./",
   "display": "standalone",
+  "display_override": ["fullscreen", "standalone"],
   "orientation": "landscape",
   "background_color": "#07080c",
   "theme_color": "#07080c",
