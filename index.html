@@ -3,6 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Mars Tanks" />
   <meta name="theme-color" content="#07080c" />
   <meta name="description" content="Mars Tanks is a widescreen artillery duel across the solar system. Angle, power, limited fuel. No rangefinder." />
   <title>Mars Tanks</title>
@@ -14,6 +18,7 @@
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
+  <div id="chrome-spacer" aria-hidden="true"></div>
   <div id="rotate-gate" role="status">
     <div class="gate-tank" aria-hidden="true"></div>
     <p class="eyebrow">MARS TANKS</p>
@@ -175,6 +180,7 @@
         <div id="status-line"></div>
       </div>
     </footer>
+    <p id="chrome-hint" role="status">Swipe up for full screen</p>
   </div>
   <script type="module" src="js/main.js"></script>
 </body>

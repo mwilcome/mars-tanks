@@ -5,6 +5,9 @@ import { Game, MAPS } from "./game.js";
 import { render } from "./render.js";
 import { aimWobbleFor, maxPowerFor } from "./sim.js";
 import { arsenal, getWeapon } from "./weapons.js";
+import { boardShouldPreventTouchMove, installViewport } from "./viewport.js";
+
+installViewport();
 
 const audio = createAudio();
 const game = new Game();
@@ -257,6 +260,7 @@ window.addEventListener("blur", () => keys.clear());
 
 document.getElementById("board").addEventListener("touchmove", (event) => {
   if (event.target.closest(".screen, button, input, a")) return;
+  if (!boardShouldPreventTouchMove()) return;
   event.preventDefault();
 }, { passive: false });
 
