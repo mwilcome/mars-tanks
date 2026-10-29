@@ -188,7 +188,17 @@ html.vv #rotate-gate {
   pointer-events: none;
 }
 
-html.chrome-open #chrome-hint { display: block; }
+html.chrome-open #chrome-hint,
+html.fullscreen-offer #chrome-hint { display: block; }
+
+/* Android Chrome turns an uncancelled vertical swipe into a scroll, then
+   rejects requestFullscreen. The title sits on a pan-y screen; while the
+   hint is up, that swipe has to stay a gesture. Scrolling menus keep pan-y. */
+html.fullscreen-offer #screen-title,
+html.fullscreen-offer #screen-pass,
+html.fullscreen-offer #screen-victory {
+  touch-action: none;
+}
 
 #hud, #controls { display: flex; }
 

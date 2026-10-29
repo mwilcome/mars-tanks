@@ -3,12 +3,19 @@ import test from "node:test";
 import {
   SAFARI_CHROME_GAP,
   boardShouldPreventTouchMove,
+  createFullscreenSwipeTracker,
+  enterLandscapeFullscreen,
+  installViewport,
+  isAndroid,
+  isDocumentFullscreen,
+  isFullscreenSwipeTarget,
   isIOSDevice,
   isIphone,
   isStandaloneDisplay,
   safariChromeOpen,
   shouldKeepSafariScroll,
   shouldOfferChromeCollapse,
+  shouldOfferFullscreenSwipe,
   shouldPinVisualViewport,
   visualFrame,
 } from "../js/viewport.js";
@@ -75,6 +82,301 @@ test("battlefield touches scroll only while the toolbar swipe is in progress", (
   assert.equal(boardShouldPreventTouchMove(root([])), true);
   assert.equal(boardShouldPreventTouchMove(root(["chrome-open"])), false);
   assert.equal(boardShouldPreventTouchMove(root(["chrome-gesture"])), false);
+});
+
+const ANDROID_UA = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
+const IPHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1";
+
+test("android fullscreen is a landscape browser tab, never an iPhone or an installed app", () => {
+  const open = {
+    android: true,
+    ios: false,
+    standalone: false,
+    landscape: true,
+    fullscreen: false,
+    api: true,
+  };
+  assert.equal(shouldOfferFullscreenSwipe(open), true);
+  assert.equal(shouldOfferFullscreenSwipe({ ...open, android: false }), false);
+  assert.equal(shouldOfferFullscreenSwipe({ ...open, ios: true }), false);
+  assert.equal(shouldOfferFullscreenSwipe({ ...open, standalone: true }), false);
+  assert.equal(shouldOfferFullscreenSwipe({ ...open, landscape: false }), false);
+  assert.equal(shouldOfferFullscreenSwipe({ ...open, fullscreen: true }), false);
+  assert.equal(shouldOfferFullscreenSwipe({ ...open, api: false }), false);
+  assert.equal(isAndroid(ANDROID_UA), true);
+  assert.equal(isAndroid(IPHONE_UA), false);
+  assert.equal(isDocumentFullscreen({ fullscreenElement: null }), false);
+  assert.equal(isDocumentFullscreen({ fullscreenElement: {} }), true);
+  assert.equal(isDocumentFullscreen({ webkitFullscreenElement: {} }), true);
+});
+
+test("a fullscreen swipe ignores controls and scrolling menus", () => {
+  const open = { closest: () => null };
+  const button = { closest: () => button };
+  const text = { parentElement: open };
+  assert.equal(isFullscreenSwipeTarget(open), true);
+  assert.equal(isFullscreenSwipeTarget(text), true);
+  assert.equal(isFullscreenSwipeTarget(button), false);
+  assert.equal(isFullscreenSwipeTarget(null), false);
+});
+
+test("only a mostly upward swipe is a fullscreen gesture, and its move is cancelled", () => {
+  const tracker = createFullscreenSwipeTracker({ minPx: 64 });
+  tracker.start(100, 220, true);
+  assert.equal(tracker.move(), true);
+  assert.equal(tracker.end(110, 140), true);
+
+  tracker.start(100, 220, true);
+  assert.equal(tracker.end(100, 180), false);
+
+  tracker.start(100, 220, true);
+  assert.equal(tracker.end(240, 100), false);
+
+  tracker.start(100, 220, true);
+  assert.equal(tracker.end(100, 320), false);
+
+  tracker.start(100, 220, false);
+  assert.equal(tracker.move(), false);
+  assert.equal(tracker.end(100, 40), false);
+
+  tracker.start(100, 220, true);
+  tracker.cancel();
+  assert.equal(tracker.end(100, 40), false);
+});
+
+test("fullscreen hides Android navigation, then locks landscape", async () => {
+  const calls = [];
+  const doc = {
+    fullscreenElement: null,
+    documentElement: {
+      requestFullscreen(options) {
+        calls.push(["fullscreen", options ?? null]);
+        doc.fullscreenElement = doc.documentElement;
+        return Promise.resolve();
+      },
+    },
+  };
+  const win = {
+    screen: {
+      orientation: {
+        lock(value) {
+          calls.push(["lock", value]);
+          return Promise.resolve();
+        },
+      },
+    },
+  };
+  assert.equal(await enterLandscapeFullscreen(doc, win), true);
+  assert.deepEqual(calls, [
+    ["fullscreen", { navigationUI: "hide" }],
+    ["lock", "landscape"],
+  ]);
+});
+
+test("a failed fullscreen request does not lock orientation", async () => {
+  let locked = false;
+  const doc = {
+    fullscreenElement: null,
+    documentElement: {
+      requestFullscreen() {
+        return Promise.reject(new Error("gesture"));
+      },
+    },
+  };
+  const win = { screen: { orientation: { lock() { locked = true; return Promise.resolve(); } } } };
+  assert.equal(await enterLandscapeFullscreen(doc, win), false);
+  assert.equal(locked, false);
+});
+
+test("orientation lock can fail without giving fullscreen back", async () => {
+  const doc = {
+    fullscreenElement: null,
+    documentElement: {
+      requestFullscreen() {
+        doc.fullscreenElement = doc.documentElement;
+        return Promise.resolve();
+      },
+    },
+  };
+  const win = { screen: { orientation: { lock() { return Promise.reject(new Error("unsupported")); } } } };
+  assert.equal(await enterLandscapeFullscreen(doc, win), true);
+});
+
+test("an implementation that throws on fullscreen options is retried without them", async () => {
+  const calls = [];
+  const doc = {
+    fullscreenElement: null,
+    documentElement: {
+      requestFullscreen(options) {
+        calls.push(options ?? null);
+        if (options) throw new TypeError("options");
+        doc.fullscreenElement = doc.documentElement;
+        return Promise.resolve();
+      },
+    },
+  };
+  const win = { screen: { orientation: { lock() { return Promise.resolve(); } } } };
+  assert.equal(await enterLandscapeFullscreen(doc, win), true);
+  assert.deepEqual(calls, [{ navigationUI: "hide" }, null]);
+});
+
+test("an element that is already fullscreen is left alone", async () => {
+  let called = false;
+  const doc = {
+    fullscreenElement: {},
+    documentElement: { requestFullscreen() { called = true; return Promise.resolve(); } },
+  };
+  assert.equal(await enterLandscapeFullscreen(doc, {}), true);
+  assert.equal(called, false);
+  assert.equal(await enterLandscapeFullscreen({ documentElement: {} }, {}), false);
+});
+
+function installHarness({ ua, width = 844, height = 390, standalone = false, viewportHeight = 300 } = {}) {
+  const listeners = [];
+  const classes = new Set();
+  const root = {
+    classList: {
+      toggle(name, on) {
+        if (on) classes.add(name);
+        else classes.delete(name);
+      },
+      contains: (name) => classes.has(name),
+      add: (name) => classes.add(name),
+      remove: (name) => classes.delete(name),
+    },
+    style: { setProperty() {}, removeProperty() {} },
+    requestFullscreen() { return Promise.resolve(); },
+  };
+  const doc = {
+    documentElement: root,
+    fullscreenElement: null,
+    addEventListener(type, fn, options) {
+      listeners.push({ type, fn, options });
+    },
+  };
+  const win = {
+    navigator: { userAgent: ua, maxTouchPoints: 1, platform: "", standalone },
+    innerWidth: width,
+    innerHeight: height,
+    screen: { width: 390, height: 844 },
+    matchMedia(query) {
+      return {
+        matches: standalone && query.includes("standalone"),
+        addEventListener() {},
+      };
+    },
+    addEventListener() {},
+    requestAnimationFrame(fn) {
+      fn();
+      return 1;
+    },
+    visualViewport: {
+      width,
+      height: viewportHeight,
+      offsetTop: 0,
+      offsetLeft: 0,
+      addEventListener() {},
+    },
+    performance: { now: () => 0 },
+  };
+  installViewport(doc, win);
+  const ofType = (type) => listeners.filter((entry) => entry.type === type);
+  return { listeners, classes, doc, win, root, ofType };
+}
+
+test("android chrome shows the swipe hint and cancels the swipe so fullscreen can run", async () => {
+  const harness = installHarness({ ua: ANDROID_UA });
+  assert.equal(harness.classes.has("fullscreen-offer"), true);
+  assert.equal(harness.classes.has("chrome-open"), false);
+  assert.equal(harness.classes.has("ios-scroll"), false);
+  const move = harness.ofType("touchmove").at(-1);
+  assert.ok(move);
+  assert.equal(move.options.passive, false);
+
+  const locks = [];
+  let options = null;
+  harness.root.requestFullscreen = (value) => {
+    options = value;
+    harness.doc.fullscreenElement = harness.root;
+    return Promise.resolve();
+  };
+  harness.win.screen.orientation = {
+    lock(value) {
+      locks.push(value);
+      return Promise.resolve();
+    },
+  };
+
+  const target = { closest: () => null };
+  for (const start of harness.ofType("touchstart")) {
+    start.fn({ touches: [{ clientX: 200, clientY: 240 }], target });
+  }
+  let prevented = false;
+  move.fn({
+    touches: [{ clientX: 200, clientY: 200 }],
+    cancelable: true,
+    preventDefault() { prevented = true; },
+  });
+  assert.equal(prevented, true);
+  const endEvent = { changedTouches: [{ clientX: 190, clientY: 120 }], touches: [] };
+  for (const end of harness.ofType("touchend")) end.fn(endEvent);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(options, { navigationUI: "hide" });
+  assert.deepEqual(locks, ["landscape"]);
+});
+
+test("android does not take a swipe that starts on a control", () => {
+  const harness = installHarness({ ua: ANDROID_UA });
+  let prevented = false;
+  let requested = false;
+  harness.root.requestFullscreen = () => {
+    requested = true;
+    return Promise.resolve();
+  };
+  const target = { closest: () => target };
+  for (const start of harness.ofType("touchstart")) {
+    start.fn({ touches: [{ clientX: 40, clientY: 200 }], target });
+  }
+  harness.ofType("touchmove").at(-1).fn({
+    touches: [{ clientX: 40, clientY: 40 }],
+    cancelable: true,
+    preventDefault() { prevented = true; },
+  });
+  for (const end of harness.ofType("touchend")) {
+    end.fn({ changedTouches: [{ clientX: 40, clientY: 40 }], touches: [] });
+  }
+  assert.equal(prevented, false);
+  assert.equal(requested, false);
+});
+
+test("iphone safari keeps the toolbar swipe and never requests fullscreen", () => {
+  const harness = installHarness({ ua: IPHONE_UA });
+  assert.equal(harness.classes.has("chrome-open"), true);
+  assert.equal(harness.classes.has("ios-scroll"), true);
+  assert.equal(harness.classes.has("fullscreen-offer"), false);
+  assert.equal(harness.ofType("touchmove").length, 0);
+  let requested = false;
+  harness.root.requestFullscreen = () => {
+    requested = true;
+    return Promise.resolve();
+  };
+  const target = { closest: () => null };
+  for (const start of harness.ofType("touchstart")) {
+    start.fn({ touches: [{ clientX: 80, clientY: 200 }], target });
+  }
+  assert.equal(harness.classes.has("chrome-gesture"), true);
+  for (const end of harness.ofType("touchend")) {
+    end.fn({ changedTouches: [{ clientX: 80, clientY: 40 }], touches: [] });
+  }
+  assert.equal(harness.classes.has("chrome-gesture"), false);
+  assert.equal(requested, false);
+});
+
+test("an installed android app does not offer the browser swipe", () => {
+  const harness = installHarness({ ua: ANDROID_UA, standalone: true, viewportHeight: 390 });
+  assert.equal(harness.classes.has("fullscreen-offer"), false);
+  assert.equal(harness.classes.has("standalone"), true);
+  assert.equal(harness.ofType("touchmove").length, 0);
 });
 
 test("iPhone and iPad are the devices that get the Safari viewport treatment", () => {
